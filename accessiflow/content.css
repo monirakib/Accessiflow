@@ -1,0 +1,243 @@
+/* AccessiFlow — Content Styles */
+/* All injected UI styles for accessibility overlays and enhancements */
+
+/* ── Skip Link ───────────────────────────────────────────── */
+.accessiflow-skip-link {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateY(-100%);
+  background: #4fffb0;
+  color: #0e0f13;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: 'DM Sans', sans-serif;
+  z-index: 999999;
+  text-decoration: none;
+  border-radius: 0 0 8px 0;
+  transition: transform 0.2s ease;
+}
+.accessiflow-skip-link:focus {
+  transform: translateY(0);
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
+/* ── TTS Highlight ───────────────────────────────────────── */
+.accessiflow-tts-highlight {
+  outline: 3px solid #4fffb0 !important;
+  outline-offset: 2px !important;
+  background-color: rgba(79, 255, 176, 0.15) !important;
+  border-radius: 4px;
+  transition: outline 0.15s ease, background-color 0.15s ease;
+}
+
+/* ── Reading Mask ────────────────────────────────────────── */
+.accessiflow-reading-mask {
+  position: fixed;
+  left: 0;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 999990;
+  pointer-events: none;
+  transition: none;
+}
+
+/* ── Line Ruler ──────────────────────────────────────────── */
+.accessiflow-line-ruler {
+  position: fixed;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #ffb347;
+  z-index: 999990;
+  pointer-events: none;
+}
+
+/* ── Large Cursor ────────────────────────────────────────── */
+.accessiflow-large-cursor {
+  position: fixed;
+  width: 48px;
+  height: 48px;
+  border: 3px solid #4fffb0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 999998;
+  transform: translate(-50%, -50%);
+  transition: left 0.05s linear, top 0.05s linear;
+  box-shadow: 0 0 12px rgba(79, 255, 176, 0.4);
+}
+
+/* ── Click Assist Ripple ─────────────────────────────────── */
+.accessiflow-click-ripple {
+  position: fixed;
+  width: 40px;
+  height: 40px;
+  border: 2px solid #4fffb0;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 999997;
+  animation: accessiflow-ripple 0.5s ease-out forwards;
+}
+
+@keyframes accessiflow-ripple {
+  0% { width: 0; height: 0; opacity: 1; }
+  100% { width: 60px; height: 60px; opacity: 0; }
+}
+
+/* ── Heading Badges (Cognitive) ──────────────────────────── */
+.accessiflow-heading-badge::before {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 8px;
+  vertical-align: middle;
+  display: inline-block;
+}
+
+/* ── Tooltip for Alt Text ────────────────────────────────── */
+.accessiflow-tooltip {
+  position: absolute;
+  background: #0e0f13;
+  color: #e0e0e0;
+  border: 1px solid #4fffb0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  max-width: 280px;
+  z-index: 999995;
+  pointer-events: none;
+  word-wrap: break-word;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+/* ── Mute Badge (Hearing) ────────────────────────────────── */
+.accessiflow-mute-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 60, 60, 0.85);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 4px 8px;
+  border-radius: 4px;
+  z-index: 999990;
+  font-family: 'DM Sans', sans-serif;
+}
+
+/* ── Caption Figure (Hearing) ────────────────────────────── */
+.accessiflow-captioned-figure {
+  display: inline-block;
+  position: relative;
+}
+.accessiflow-captioned-figure figcaption {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 10px;
+  text-align: center;
+  font-family: 'DM Sans', sans-serif;
+}
+
+/* ── No Captions Badge ───────────────────────────────────── */
+.accessiflow-no-captions-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(255, 165, 0, 0.85);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 4px 8px;
+  border-radius: 4px;
+  z-index: 999990;
+  font-family: 'DM Sans', sans-serif;
+}
+
+/* ── Landmark / Heading Nav Panel ────────────────────────── */
+.accessiflow-nav-panel {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  background: #16181f;
+  border: 2px solid #4fffb0;
+  border-radius: 12px;
+  padding: 16px;
+  max-height: 60vh;
+  overflow-y: auto;
+  z-index: 999999;
+  min-width: 240px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  font-family: 'DM Sans', sans-serif;
+  color: #e0e0e0;
+}
+.accessiflow-nav-panel h3 {
+  font-size: 14px;
+  color: #4fffb0;
+  margin: 0 0 12px;
+  border-bottom: 1px solid #2a2d35;
+  padding-bottom: 8px;
+}
+.accessiflow-nav-panel button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+  font-family: inherit;
+}
+.accessiflow-nav-panel button:hover,
+.accessiflow-nav-panel button:focus {
+  background: rgba(79, 255, 176, 0.12);
+  color: #4fffb0;
+  outline: 2px solid #4fffb0;
+}
+
+/* ── Focus Mode Overlay ──────────────────────────────────── */
+.accessiflow-focus-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 999980;
+  pointer-events: none;
+}
+.accessiflow-focus-target {
+  position: relative;
+  z-index: 999981;
+  box-shadow: 0 0 0 4px #4fffb0, 0 0 40px rgba(79, 255, 176, 0.3);
+  border-radius: 4px;
+}
+
+/* ── Dyslexia Font (loaded via CSS) ──────────────────────── */
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/woff/OpenDyslexic-Regular.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Shortcut Announce (sr-only) ─────────────────────────── */
+#accessiflow-shortcut-announce,
+#accessiflow-page-summary {
+  position: absolute !important;
+  left: -9999px !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+}

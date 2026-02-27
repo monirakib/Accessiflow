@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to AccessiFlow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0e0f13; color: #e0e0e0; font-family: 'DM Sans', sans-serif;
+      display: flex; justify-content: center; padding: 40px 20px; min-height: 100vh;
+    }
+    .welcome { max-width: 640px; width: 100%; }
+    .header { text-align: center; margin-bottom: 40px; }
+    .header img { margin-bottom: 16px; }
+    .header h1 { font-size: 32px; color: #4fffb0; margin-bottom: 8px; }
+    .header p { font-size: 16px; color: #aaa; }
+    .card {
+      background: #16181f; border: 1px solid #2a2d35; border-radius: 14px;
+      padding: 28px; margin-bottom: 20px;
+    }
+    .card h2 { font-size: 18px; color: #4fffb0; margin-bottom: 12px; }
+    .card p, .card li { font-size: 14px; color: #ccc; line-height: 1.7; }
+    .card ul { list-style: none; padding-left: 0; }
+    .card ul li { padding: 6px 0; padding-left: 24px; position: relative; }
+    .card ul li::before {
+      content: '✓'; position: absolute; left: 0; color: #4fffb0; font-weight: bold;
+    }
+    .shortcut-grid {
+      display: grid; grid-template-columns: auto 1fr; gap: 8px 16px;
+      font-size: 13px; margin-top: 12px;
+    }
+    .shortcut-grid kbd {
+      font-family: 'Space Mono', monospace; background: #2a2d35; color: #4fffb0;
+      padding: 4px 10px; border-radius: 6px; font-size: 12px; white-space: nowrap;
+    }
+    .cta {
+      display: inline-block; margin-top: 24px; padding: 14px 32px;
+      background: #4fffb0; color: #0e0f13; font-weight: 700; font-size: 16px;
+      border-radius: 10px; text-decoration: none; transition: opacity 0.2s;
+    }
+    .cta:hover { opacity: 0.85; }
+    .footer { text-align: center; margin-top: 32px; font-size: 12px; color: #555; }
+  </style>
+</head>
+<body>
+  <main class="welcome" role="main">
+    <div class="header">
+      <img src="icons/icon128.png" alt="AccessiFlow logo" width="80" height="80">
+      <h1>Welcome to AccessiFlow</h1>
+      <p>Your WCAG 2.2 accessibility companion for the web</p>
+    </div>
+
+    <div class="card">
+      <h2>What AccessiFlow Does</h2>
+      <ul>
+        <li>Automatically repairs accessibility issues for screen readers</li>
+        <li>Adjusts vision settings: contrast, dark mode, dyslexia-friendly fonts</li>
+        <li>Motor accessibility: large cursors, big click targets, stop animations</li>
+        <li>Cognitive aids: reading masks, line rulers, page simplification</li>
+        <li>Hearing support: image captions, video muting, closed captions</li>
+        <li>Built-in WCAG 2.2 audit: instant score &amp; issue detection</li>
+        <li>AI-powered features via Claude API (optional)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Getting Started</h2>
+      <p>Click the <strong>AccessiFlow icon</strong> in your browser toolbar to open the panel. Use the tabs to access different accessibility categories. Quick profiles let you apply presets in one click.</p>
+      <p style="margin-top:12px">Settings are saved per-website automatically.</p>
+    </div>
+
+    <div class="card">
+      <h2>Keyboard Shortcuts</h2>
+      <div class="shortcut-grid">
+        <kbd>Alt+Shift+A</kbd> <span>Toggle AccessiFlow on/off</span>
+        <kbd>Alt+Shift+H</kbd> <span>Heading navigation panel</span>
+        <kbd>Alt+Shift+L</kbd> <span>Landmark navigation panel</span>
+        <kbd>Alt+Shift+R</kbd> <span>Read page aloud (TTS)</span>
+        <kbd>Alt+Shift+S</kbd> <span>Stop reading</span>
+        <kbd>Alt+Shift+C</kbd> <span>Toggle high contrast</span>
+        <kbd>Alt+Shift+F</kbd> <span>Toggle focus ring</span>
+        <kbd>Alt+Shift+T</kbd> <span>Toggle large cursor</span>
+        <kbd>Alt+Shift+M</kbd> <span>Toggle reading mask</span>
+      </div>
+    </div>
+
+    <div class="card" style="text-align:center">
+      <h2>Ready to Go!</h2>
+      <p>Navigate to any website and click the AccessiFlow icon to start.</p>
+      <a href="https://www.google.com" class="cta">Open a Website &rarr;</a>
+    </div>
+
+    <div class="footer">
+      <p>AccessiFlow v1.0.0 — Built for WCAG 2.2 AA/AAA compliance</p>
+    </div>
+  </main>
+</body>
+</html>
