@@ -2,658 +2,272 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AccessiFlow — WCAG 2.2 Accessibility Suite</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <title>AccessiFlow</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <!-- ── Header ──────────────────────────────────────────── -->
-  <header class="popup-header">
-    <div class="logo-area">
-      <img src="icons/icon48.png" alt="AccessiFlow logo" width="28" height="28">
-      <h1>AccessiFlow</h1>
-    </div>
-    <span class="version-label">v1.0.0</span>
-  </header>
+  <a class="skip-link" href="#main">Skip to settings</a>
 
-  <!-- ── Quick Profiles ──────────────────────────────────── -->
-  <section class="quick-profiles" aria-label="Quick accessibility profiles">
-    <button type="button" class="profile-btn" data-profile="visual" aria-pressed="false">
-      <span class="profile-icon">👁</span>
-      <span class="profile-label">Visual</span>
-    </button>
-    <button type="button" class="profile-btn" data-profile="motor" aria-pressed="false">
-      <span class="profile-icon">🖐</span>
-      <span class="profile-label">Motor</span>
-    </button>
-    <button type="button" class="profile-btn" data-profile="cognitive" aria-pressed="false">
-      <span class="profile-icon">🧠</span>
-      <span class="profile-label">Cognitive</span>
-    </button>
-    <button type="button" class="profile-btn" data-profile="blind" aria-pressed="false">
-      <span class="profile-icon">♿</span>
-      <span class="profile-label">Blind</span>
-    </button>
-    <button type="button" class="profile-btn" data-profile="senior" aria-pressed="false">
-      <span class="profile-icon">👴</span>
-      <span class="profile-label">Senior</span>
-    </button>
-    <button type="button" class="profile-btn" data-profile="adhd" aria-pressed="false">
-      <span class="profile-icon">⚡</span>
-      <span class="profile-label">ADHD</span>
-    </button>
-    <button type="button" class="profile-btn" data-profile="seizure" aria-pressed="false">
-      <span class="profile-icon">🛡️</span>
-      <span class="profile-label">Seizure</span>
-    </button>
-  </section>
+  <!-- Icon sprite. Every <use> of these is aria-hidden; the text beside it
+       carries the meaning. -->
+  <svg class="sprite" aria-hidden="true" focusable="false" width="0" height="0">
+    <defs>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1.5 12S5 5.5 12 5.5 22.5 12 22.5 12 19 18.5 12 18.5 1.5 12 1.5 12Z"/><circle cx="12" cy="12" r="3.2"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M3 4.5h6a3 3 0 0 1 3 3v12a2.5 2.5 0 0 0-2.5-2.5H3Z"/><path d="M21 4.5h-6a3 3 0 0 0-3 3v12a2.5 2.5 0 0 1 2.5-2.5H21Z"/></symbol>
+      <symbol id="i-hand" viewBox="0 0 24 24"><path d="M9 11V4.8a1.6 1.6 0 0 1 3.2 0V11m0-1.2V3.6a1.6 1.6 0 0 1 3.2 0V11m0-1.2a1.6 1.6 0 0 1 3.2 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5.2-3l-2.6-4.5a1.6 1.6 0 0 1 2.7-1.7L9 14"/></symbol>
+      <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4Z"/><path d="M16 9a4.2 4.2 0 0 1 0 6"/><path d="M18.8 6a8 8 0 0 1 0 12"/></symbol>
+      <symbol id="i-ear" viewBox="0 0 24 24"><path d="M6.5 9a5.5 5.5 0 1 1 11 0c0 3-2.5 4-3.5 5.5s-.3 3.5-2.5 3.5a2.6 2.6 0 0 1-2.6-2.6"/><path d="M10 9.2a2.2 2.2 0 0 1 4.3 0"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.5 12.5a7.5 7.5 0 0 1-7.5 7.5 8 8 0 0 1-3.2-.7L4 21l1.7-5.2A7.5 7.5 0 1 1 20.5 12.5Z"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.8 20 6v6c0 5-3.4 8.2-8 9.2C7.4 20.2 4 17 4 12V6Z"/><path d="M9 12.2l2.2 2.2L15.4 10"/></symbol>
+      <symbol id="i-focus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></symbol>
+      <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="7.8" r="3.8"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6M3.2 14.5h17.6"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18Z"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 2.8 2.3 5.9 5.9 2.3-5.9 2.3L12 19.2l-2.3-5.9L3.8 11l5.9-2.3Z"/><path d="M18.6 17.2l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9Z"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M21 5.5 9.4 17.1 3.5 11.2"/></symbol>
+      <symbol id="i-slider" viewBox="0 0 24 24"><path d="M3.5 7.5h17M3.5 16.5h17"/><circle cx="9" cy="7.5" r="2.6"/><circle cx="15.5" cy="16.5" r="2.6"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7.5 10 4.5 4.5 4.5-4.5"/></symbol>
+      <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.5v8.2"/><path d="M6.8 6.6a7.6 7.6 0 1 0 10.4 0"/></symbol>
+      <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.4 9.3a2.7 2.7 0 1 1 3.4 2.6c-.6.2-.9.7-.9 1.3v.6"/><circle cx="12" cy="17.2" r="1.05" fill="currentColor" stroke="none"/></symbol>
+    </defs>
+  </svg>
 
-  <!-- ── Tab Navigation ──────────────────────────────────── -->
-  <div class="tab-bar" role="tablist" aria-label="Settings categories">
-    <button role="tab" id="tab-vision" aria-controls="panel-vision" aria-selected="true" tabindex="0">Vision</button>
-    <button role="tab" id="tab-motor" aria-controls="panel-motor" aria-selected="false" tabindex="-1">Motor</button>
-    <button role="tab" id="tab-cognitive" aria-controls="panel-cognitive" aria-selected="false" tabindex="-1">Cognitive</button>
-    <button role="tab" id="tab-hearing" aria-controls="panel-hearing" aria-selected="false" tabindex="-1">Hearing</button>
-    <button role="tab" id="tab-seizure" aria-controls="panel-seizure" aria-selected="false" tabindex="-1">Seizure</button>
-    <button role="tab" id="tab-speech" aria-controls="panel-speech" aria-selected="false" tabindex="-1">Speech</button>
-    <button role="tab" id="tab-neuro" aria-controls="panel-neuro" aria-selected="false" tabindex="-1">Neuro</button>
-    <button role="tab" id="tab-bangla" aria-controls="panel-bangla" aria-selected="false" tabindex="-1">বাংলা</button>
-    <button role="tab" id="tab-blind" aria-controls="panel-blind" aria-selected="false" tabindex="-1">Blind</button>
-    <button role="tab" id="tab-audit" aria-controls="panel-audit" aria-selected="false" tabindex="-1">Audit</button>
-    <button role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
-  </div>
-
-  <!-- ── Tab Panels ──────────────────────────────────────── -->
-  <div class="panels-wrapper">
-
-    <!-- Vision Panel -->
-    <div role="tabpanel" id="panel-vision" aria-labelledby="tab-vision" class="panel active">
-      <div class="control-group">
-        <label for="textSize" id="lbl-textSize">Text Size</label>
-        <input type="range" id="textSize" min="80" max="200" value="100" step="5"
-               aria-labelledby="lbl-textSize" aria-valuemin="80" aria-valuemax="200" aria-valuenow="100">
-        <output for="textSize" id="out-textSize" aria-live="polite">100%</output>
-      </div>
-      <div class="control-group">
-        <label for="lineHeight" id="lbl-lineHeight">Line Height</label>
-        <input type="range" id="lineHeight" min="1.0" max="2.5" value="1.5" step="0.1"
-               aria-labelledby="lbl-lineHeight" aria-valuemin="1" aria-valuemax="2.5" aria-valuenow="1.5">
-        <output for="lineHeight" id="out-lineHeight" aria-live="polite">1.5</output>
-      </div>
-      <div class="control-group">
-        <label for="letterSpacing" id="lbl-letterSpacing">Letter Spacing</label>
-        <input type="range" id="letterSpacing" min="0" max="10" value="0" step="0.5"
-               aria-labelledby="lbl-letterSpacing" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0">
-        <output for="letterSpacing" id="out-letterSpacing" aria-live="polite">0px</output>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="highContrast">High Contrast</label>
-        <button type="button" id="highContrast" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="darkMode">Dark Mode</label>
-        <button type="button" id="darkMode" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="invertColors">Invert Colors</label>
-        <button type="button" id="invertColors" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="dyslexiaFont">Dyslexia Font</label>
-        <button type="button" id="dyslexiaFont" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="highlightLinks">Highlight Links</label>
-        <button type="button" id="highlightLinks" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="hideImages">Hide Images</label>
-        <button type="button" id="hideImages" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="readingGuide">Reading Guide</label>
-        <button type="button" id="readingGuide" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="focusMode">Focus Mode</label>
-        <button type="button" id="focusMode" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="magnifier">Magnifier Lens</label>
-        <button type="button" id="magnifier" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group">
-        <label for="magnifierZoom" id="lbl-magnifierZoom">Magnifier Zoom</label>
-        <input type="range" id="magnifierZoom" min="1.5" max="5" value="2" step="0.5"
-               aria-labelledby="lbl-magnifierZoom" aria-valuemin="1.5" aria-valuemax="5" aria-valuenow="2">
-        <output for="magnifierZoom" id="out-magnifierZoom" aria-live="polite">2×</output>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="bionicReading">Bionic Reading</label>
-        <button type="button" id="bionicReading" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="lineNumbering">Line Numbering</label>
-        <button type="button" id="lineNumbering" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group">
-        <label for="iconScaling" id="lbl-iconScaling">Icon Scaling</label>
-        <input type="range" id="iconScaling" min="1" max="3" value="1" step="0.5"
-               aria-labelledby="lbl-iconScaling" aria-valuemin="1" aria-valuemax="3" aria-valuenow="1">
-        <output for="iconScaling" id="out-iconScaling" aria-live="polite">1×</output>
-      </div>
-      <div class="control-group">
-        <label for="saturation" id="lbl-saturation">Saturation</label>
-        <input type="range" id="saturation" min="0" max="200" value="100" step="10"
-               aria-labelledby="lbl-saturation" aria-valuemin="0" aria-valuemax="200" aria-valuenow="100">
-        <output for="saturation" id="out-saturation" aria-live="polite">100%</output>
-      </div>
-      <div class="control-group">
-        <label for="wordSpacing" id="lbl-wordSpacing">Word Spacing</label>
-        <input type="range" id="wordSpacing" min="0" max="10" value="0" step="0.5"
-               aria-labelledby="lbl-wordSpacing" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0">
-        <output for="wordSpacing" id="out-wordSpacing" aria-live="polite">0px</output>
-      </div>
-      <div class="control-group">
-        <label for="textAlign" id="lbl-textAlign">Text Alignment</label>
-        <select id="textAlign" aria-labelledby="lbl-textAlign">
-          <option value="default">Default</option>
-          <option value="left">Left</option>
-          <option value="center">Center</option>
-          <option value="right">Right</option>
-          <option value="justify">Justify</option>
-        </select>
-      </div>
-      <div class="control-group">
-        <label for="colorFilter" id="lbl-colorFilter">Color Vision Filter</label>
-        <select id="colorFilter" aria-labelledby="lbl-colorFilter">
-          <option value="none">None</option>
-          <option value="protanopia">Protanopia (Red-blind)</option>
-          <option value="deuteranopia">Deuteranopia (Green-blind)</option>
-          <option value="tritanopia">Tritanopia (Blue-blind)</option>
-          <option value="achromatopsia">Achromatopsia (Total)</option>
-        </select>
-      </div>
-      <div class="control-group">
-        <label for="fontFamily" id="lbl-fontFamily">Font Family</label>
-        <select id="fontFamily" aria-labelledby="lbl-fontFamily">
-          <option value="">Default</option>
-          <option value="OpenDyslexic">OpenDyslexic</option>
-          <option value="Arial">Arial</option>
-          <option value="Verdana">Verdana</option>
-          <option value="Tahoma">Tahoma</option>
-          <option value="Georgia">Georgia</option>
-          <option value="Courier New">Courier New</option>
-        </select>
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <header class="app-header">
+    <div class="brand">
+      <img src="icons/icon48.png" alt="" width="30" height="30" class="brand-mark">
+      <div class="brand-text">
+        <h1>AccessiFlow</h1>
+        <p class="brand-site">
+          Adjusting <span id="currentHostname" class="site-name">this page</span>
+        </p>
       </div>
     </div>
 
-    <!-- Motor Panel -->
-    <div role="tabpanel" id="panel-motor" aria-labelledby="tab-motor" class="panel" hidden>
-      <div class="control-group toggle-row">
-        <label for="largeCursor">Large Cursor</label>
-        <button type="button" id="largeCursor" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group">
-        <label for="cursorSize" id="lbl-cursorSize">Cursor Size</label>
-        <input type="range" id="cursorSize" min="1" max="4" value="2" step="0.5"
-               aria-labelledby="lbl-cursorSize" aria-valuemin="1" aria-valuemax="4" aria-valuenow="2">
-        <output for="cursorSize" id="out-cursorSize" aria-live="polite">2×</output>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="enhancedFocus">Enhanced Focus Ring</label>
-        <button type="button" id="enhancedFocus" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="bigTargets">Big Click Targets (44px)</label>
-        <button type="button" id="bigTargets" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="clickAssist">Click Feedback</label>
-        <button type="button" id="clickAssist" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="stopAnimations">Stop Animations</label>
-        <button type="button" id="stopAnimations" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="stickyHover">Sticky Hover</label>
-        <button type="button" id="stickyHover" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="dwellClick">Dwell Click (Auto-click)</label>
-        <button type="button" id="dwellClick" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group">
-        <label for="dwellClickDelay" id="lbl-dwellClickDelay">Dwell Delay</label>
-        <input type="range" id="dwellClickDelay" min="500" max="3000" value="1000" step="100"
-               aria-labelledby="lbl-dwellClickDelay" aria-valuemin="500" aria-valuemax="3000" aria-valuenow="1000">
-        <output for="dwellClickDelay" id="out-dwellClickDelay" aria-live="polite">1000ms</output>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="tremorFilter">Tremor Filter</label>
-        <button type="button" id="tremorFilter" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="keyboardOnly">Keyboard-Only Mode</label>
-        <button type="button" id="keyboardOnly" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="voiceCommands">Voice Commands</label>
-        <button type="button" id="voiceCommands" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="edgeScrolling">Edge Scrolling</label>
-        <button type="button" id="edgeScrolling" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
+    <div class="header-actions">
+      <button type="button" id="btnTheme" class="icon-btn" aria-expanded="false" aria-controls="themeMenu">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-theme"/></svg>
+        <span class="sr-only">Appearance: <span id="themeStateLabel">match my device</span></span>
+      </button>
+      <button type="button" id="btnHelp" class="icon-btn">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-help"/></svg>
+        <span class="sr-only">Help and keyboard shortcuts</span>
+      </button>
     </div>
 
-    <!-- Cognitive Panel -->
-    <div role="tabpanel" id="panel-cognitive" aria-labelledby="tab-cognitive" class="panel" hidden>
-      <div class="control-group toggle-row">
-        <label for="readingMask">Reading Mask</label>
-        <button type="button" id="readingMask" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="lineRuler">Line Ruler</label>
-        <button type="button" id="lineRuler" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="simplifyPage">Simplify Page</label>
-        <button type="button" id="simplifyPage" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="showHeadings">Show Heading Badges</label>
-        <button type="button" id="showHeadings" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="altTextTooltips">Alt Text Tooltips</label>
-        <button type="button" id="altTextTooltips" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="pauseMedia">Pause All Media</label>
-        <button type="button" id="pauseMedia" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="dictionary">Dictionary Tooltips</label>
-        <button type="button" id="dictionary" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="readingProgress">Reading Progress Bar</label>
-        <button type="button" id="readingProgress" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="distractionFree">Distraction-Free Mode</label>
-        <button type="button" id="distractionFree" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="formSteps">Numbered Form Steps</label>
-        <button type="button" id="formSteps" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="activeFieldHighlight">Active Field Glow</label>
-        <button type="button" id="activeFieldHighlight" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="breakTimer">Break Timer</label>
-        <button type="button" id="breakTimer" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group">
-        <label for="breakTimerMinutes" id="lbl-breakTimerMinutes">Break Interval</label>
-        <input type="range" id="breakTimerMinutes" min="5" max="60" value="20" step="5"
-               aria-labelledby="lbl-breakTimerMinutes" aria-valuemin="5" aria-valuemax="60" aria-valuenow="20">
-        <output for="breakTimerMinutes" id="out-breakTimerMinutes" aria-live="polite">20 min</output>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="memoryAid">Memory Aid (Form Recall)</label>
-        <button type="button" id="memoryAid" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Hearing + Speech Panel -->
-    <div role="tabpanel" id="panel-hearing" aria-labelledby="tab-hearing" class="panel" hidden>
-      <h3 class="panel-section-title">Hearing</h3>
-      <div class="control-group toggle-row">
-        <label for="captionImages">Caption Images</label>
-        <button type="button" id="captionImages" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="muteVideos">Mute All Videos</label>
-        <button type="button" id="muteVideos" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="closedCaptions">Closed Captions</label>
-        <button type="button" id="closedCaptions" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="liveTranscription">Live Transcription</label>
-        <button type="button" id="liveTranscription" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="soundVisualization">Sound Visualization</label>
-        <button type="button" id="soundVisualization" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="visualAlerts">Visual Alerts</label>
-        <button type="button" id="visualAlerts" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="captionStyling">Caption Styling</label>
-        <button type="button" id="captionStyling" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-
-      <h3 class="panel-section-title">Text-to-Speech</h3>
-      <div class="control-group">
-        <label for="ttsRate" id="lbl-ttsRate">Speech Rate</label>
-        <input type="range" id="ttsRate" min="0.5" max="2.0" value="1.0" step="0.1"
-               aria-labelledby="lbl-ttsRate" aria-valuemin="0.5" aria-valuemax="2" aria-valuenow="1">
-        <output for="ttsRate" id="out-ttsRate" aria-live="polite">1.0×</output>
-      </div>
-      <div class="control-group">
-        <label for="ttsPitch" id="lbl-ttsPitch">Speech Pitch</label>
-        <input type="range" id="ttsPitch" min="0.5" max="2.0" value="1.0" step="0.1"
-               aria-labelledby="lbl-ttsPitch" aria-valuemin="0.5" aria-valuemax="2" aria-valuenow="1">
-        <output for="ttsPitch" id="out-ttsPitch" aria-live="polite">1.0</output>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="ttsReadOnSelect">Read Selected Text</label>
-        <button type="button" id="ttsReadOnSelect" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="tts-actions">
-        <button type="button" class="action-btn" id="btnTTSRead">▶ Read Page</button>
-        <button type="button" class="action-btn" id="btnTTSStop">⏹ Stop</button>
-      </div>
-    </div>
-
-    <!-- Seizure / Vestibular Panel -->
-    <div role="tabpanel" id="panel-seizure" aria-labelledby="tab-seizure" class="panel" hidden>
-      <p class="panel-desc">Protections for seizure disorders, epilepsy, and vestibular sensitivities.</p>
-      <div class="control-group toggle-row">
-        <label for="flashDetection">Flash Detection</label>
-        <button type="button" id="flashDetection" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="reduceMotion">Reduce Motion</label>
-        <button type="button" id="reduceMotion" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="staticGifs">Freeze GIFs</label>
-        <button type="button" id="staticGifs" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="disableAutoplay">Disable Autoplay</label>
-        <button type="button" id="disableAutoplay" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Speech Disability Panel -->
-    <div role="tabpanel" id="panel-speech" aria-labelledby="tab-speech" class="panel" hidden>
-      <p class="panel-desc">Tools for people with speech impairments or who cannot use voice-based interfaces.</p>
-      <div class="control-group toggle-row">
-        <label for="aacBoard">AAC Communication Board</label>
-        <button type="button" id="aacBoard" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="quickResponses">Quick Response Templates</label>
-        <button type="button" id="quickResponses" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="textInputBar">Type-to-Speak Bar</label>
-        <button type="button" id="textInputBar" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="speechToText">Voice Input for Forms</label>
-        <button type="button" id="speechToText" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Neurodiverse Panel -->
-    <div role="tabpanel" id="panel-neuro" aria-labelledby="tab-neuro" class="panel" hidden>
-      <p class="panel-desc">Support for autism, ADHD, and sensory processing differences.</p>
-      <div class="control-group">
-        <label for="neuroColorTheme" id="lbl-neuroColorTheme">Color Theme</label>
-        <select id="neuroColorTheme" aria-labelledby="lbl-neuroColorTheme">
-          <option value="none">Default</option>
-          <option value="calm">Calm</option>
-          <option value="warm">Warm</option>
-          <option value="cool">Cool</option>
-          <option value="muted">Muted</option>
-          <option value="pastel">Pastel</option>
-        </select>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="reduceClutter">Reduce Visual Clutter</label>
-        <button type="button" id="reduceClutter" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="lowStimulation">Low Stimulation Mode</label>
-        <button type="button" id="lowStimulation" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="consistentNav">Consistent Navigation</label>
-        <button type="button" id="consistentNav" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="contentWarnings">Content Warnings</label>
-        <button type="button" id="contentWarnings" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="socialCues">Social Cues / Idiom Helper</label>
-        <button type="button" id="socialCues" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="focusTimer">Focus Timer (Pomodoro)</label>
-        <button type="button" id="focusTimer" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group">
-        <label for="focusTimerMinutes" id="lbl-focusTimerMinutes">Focus Duration</label>
-        <input type="range" id="focusTimerMinutes" min="5" max="60" value="25" step="5"
-               aria-labelledby="lbl-focusTimerMinutes" aria-valuemin="5" aria-valuemax="60" aria-valuenow="25">
-        <output for="focusTimerMinutes" id="out-focusTimerMinutes" aria-live="polite">25 min</output>
-      </div>
-    </div>
-
-    <!-- Bangla / বাংলা Panel -->
-    <div role="tabpanel" id="panel-bangla" aria-labelledby="tab-bangla" class="panel" hidden>
-      <p class="panel-desc">বাংলা ভাষার জন্য বিশেষ অ্যাক্সেসিবিলিটি সুবিধা।<br>Special accessibility features for Bangla language.</p>
-      <div class="control-group toggle-row">
-        <label for="banglaFont">Bangla Font Optimization</label>
-        <button type="button" id="banglaFont" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="banglaLargeText">Larger Bangla Text</label>
-        <button type="button" id="banglaLargeText" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="banglaFormLabels">Bangla Form Labels</label>
-        <button type="button" id="banglaFormLabels" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <div class="control-group toggle-row">
-        <label for="banglaNumbers">Bangla Numbers & Dates</label>
-        <button type="button" id="banglaNumbers" role="switch" aria-pressed="false" class="toggle-btn">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Blind Mode Panel -->
-    <div role="tabpanel" id="panel-blind" aria-labelledby="tab-blind" class="panel" hidden>
-      <p class="panel-desc">Blind Mode automatically repairs accessibility issues for screen readers. These features run silently in the background.</p>
-      <div class="control-group toggle-row">
-        <label for="blindMode">Blind Mode (Master)</label>
-        <button type="button" id="blindMode" role="switch" aria-pressed="true" class="toggle-btn active">
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-        </button>
-      </div>
-      <p class="feature-note">Active repairs: alt text, empty links/buttons, form labels, landmarks, skip links, tab order, ARIA roles, data tables, heading/landmark navigation.</p>
-    </div>
-
-    <!-- Audit Panel -->
-    <div role="tabpanel" id="panel-audit" aria-labelledby="tab-audit" class="panel" hidden>
-      <button type="button" class="action-btn action-btn-full" id="btnRunAudit">Run WCAG 2.2 Audit</button>
-      <div id="auditScoreArea" class="audit-score-area" hidden>
-        <div class="score-circle" id="auditScoreCircle">
-          <span class="score-value" id="auditScoreValue">—</span>
-          <span class="score-label">/ 100</span>
+    <!-- Appearance menu for the popup itself. Separate from page settings:
+         these change AccessiFlow, not the website. -->
+    <div id="themeMenu" class="theme-menu" role="group" aria-label="AccessiFlow appearance" hidden>
+      <fieldset class="theme-fieldset">
+        <legend>Colours</legend>
+        <div class="segmented">
+          <label><input type="radio" name="uiTheme" value="auto" checked><span>Automatic</span></label>
+          <label><input type="radio" name="uiTheme" value="light"><span>Light</span></label>
+          <label><input type="radio" name="uiTheme" value="dark"><span>Dark</span></label>
+          <label><input type="radio" name="uiTheme" value="contrast"><span>High contrast</span></label>
+        </div>
+      </fieldset>
+      <div class="control-row control-row--slider">
+        <label for="uiScale">Size of this panel</label>
+        <div class="slider-line">
+          <button type="button" class="step-btn" data-step="down" data-target="uiScale">
+            <span aria-hidden="true">&minus;</span><span class="sr-only">Make this panel smaller</span>
+          </button>
+          <input type="range" id="uiScale" min="90" max="150" step="5" value="100">
+          <button type="button" class="step-btn" data-step="up" data-target="uiScale">
+            <span aria-hidden="true">+</span><span class="sr-only">Make this panel bigger</span>
+          </button>
+          <output for="uiScale" id="out-uiScale">100%</output>
         </div>
       </div>
-      <div id="auditResultsList" class="audit-results-list" aria-live="polite"></div>
     </div>
+  </header>
 
-    <!-- Settings Panel -->
-    <div role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" class="panel" hidden>
-      <div class="control-group">
-        <label for="apiKey" id="lbl-apiKey">Claude API Key</label>
-        <input type="password" id="apiKey" placeholder="sk-ant-..." aria-labelledby="lbl-apiKey" autocomplete="off">
-        <button type="button" class="action-btn action-btn-sm" id="btnSaveApiKey">Save Key</button>
-      </div>
-      <h3 class="panel-section-title">AI Features</h3>
-      <div class="ai-actions">
-        <button type="button" class="action-btn" id="btnAiAltText">Generate Alt Text</button>
-        <button type="button" class="action-btn" id="btnAiSummary">Page Summary</button>
-        <button type="button" class="action-btn" id="btnAiLinks">Fix Vague Links</button>
-      </div>
-      <div id="aiStatus" class="ai-status" aria-live="polite"></div>
-      <hr class="divider">
-      <h3 class="panel-section-title">Data</h3>
-      <div class="settings-actions">
-        <button type="button" class="action-btn action-btn-danger" id="btnResetSettings">Reset All Settings</button>
-        <button type="button" class="action-btn" id="btnExportSettings">Export Settings</button>
-        <button type="button" class="action-btn" id="btnImportSettings">Import Settings</button>
-        <input type="file" id="importFile" accept=".json" hidden aria-hidden="true">
-      </div>
-    </div>
+  <!-- ── Search ─────────────────────────────────────────────────────── -->
+  <div class="search-bar">
+    <svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="#i-search"/></svg>
+    <label for="settingSearch" class="sr-only">Search all settings</label>
+    <input type="search" id="settingSearch" placeholder="Search, e.g. bigger text or pictures"
+           autocomplete="off" spellcheck="false" aria-describedby="searchHint">
+    <button type="button" id="btnClearSearch" class="clear-btn" hidden>
+      <span aria-hidden="true">&times;</span><span class="sr-only">Clear search</span>
+    </button>
+  </div>
+  <p id="searchHint" class="sr-only">Type to search every setting and button. Matching sections open automatically.</p>
 
+  <!-- ── Disability filter ──────────────────────────────────────────────
+       Nine setting groups is a lot to read past when three of them are
+       yours. Choosing a need moves those groups to the top and puts the
+       rest away. Options are rendered from the schema by popup.js. -->
+  <div class="audience-bar">
+    <label for="audienceFilter" class="audience-label">Show settings for</label>
+    <select id="audienceFilter" aria-describedby="audienceHint"></select>
+    <p id="audienceHint" class="audience-hint" hidden>Choose a need to show only the settings that help with it.</p>
+    <button type="button" id="btnClearAudience" class="btn btn-quiet audience-reset" hidden>
+      Show every group
+    </button>
   </div>
 
-  <!-- ── Footer ──────────────────────────────────────────── -->
-  <footer class="popup-footer">
-    <span>Alt+Shift+A to toggle</span>
-    <span id="currentHostname" aria-live="polite"></span>
+  <!-- ── Settings ───────────────────────────────────────────────────── -->
+  <main id="main" tabindex="-1">
+
+    <!-- ── AI help ────────────────────────────────────────────────────
+         First and open: these three buttons are what people come back
+         for, and they should not need a search to be found. -->
+    <section class="section section--open" id="section-ai">
+      <h2 class="section-heading">
+        <button type="button" class="section-toggle" aria-expanded="true" aria-controls="body-ai">
+          <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-spark"/></svg>
+          <span class="section-title">
+            <span class="section-label">Smart help</span>
+            <span class="section-desc">Describes pictures and explains pages for you.</span>
+          </span>
+          <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+        </button>
+      </h2>
+      <div class="section-body" id="body-ai">
+        <div class="ai-actions">
+          <button type="button" class="btn btn-primary btn-full" id="btnAiAltText">
+            Describe the pictures
+            <span class="btn-sub" id="aiImageCount"></span>
+          </button>
+          <button type="button" class="btn btn-primary btn-full" id="btnAiSummary">
+            Tell me what this page is about
+          </button>
+          <button type="button" class="btn btn-primary btn-full" id="btnAiLinks">
+            Fix confusing links
+            <span class="btn-sub" id="aiLinkCount"></span>
+          </button>
+          <button type="button" class="btn btn-quiet btn-full" id="btnAiCancel" hidden>Stop</button>
+        </div>
+
+        <div class="progress" id="aiProgress" hidden>
+          <div class="progress-track"><div class="progress-fill" id="aiProgressFill"></div></div>
+        </div>
+
+        <p id="aiStatus" class="status-text" role="status" aria-live="polite"></p>
+
+        <p class="panel-note">
+          Nothing to set up and nothing to pay for. AccessiFlow does the
+          technical part for you.
+        </p>
+
+        <details class="disclosure">
+          <summary>What happens to my page?</summary>
+          <p>
+            When you press one of these buttons, AccessiFlow sends that picture
+            or that page text to its helper service, which writes the
+            description and sends it back. Nothing is sent until you press a
+            button, nothing is kept afterwards, and the rest of AccessiFlow
+            works entirely on your own computer.
+          </p>
+        </details>
+      </div>
+    </section>
+
+    <!-- Profiles: the shortest path from "I cannot read this" to relief. -->
+    <section class="section section--open" id="section-profiles">
+      <h2 class="section-heading">
+        <button type="button" class="section-toggle" aria-expanded="true" aria-controls="body-profiles">
+          <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-spark"/></svg>
+          <span class="section-title">
+            <span class="section-label">Quick setup</span>
+            <span class="section-desc">Pick what fits you. Everything else is optional.</span>
+          </span>
+          <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+        </button>
+      </h2>
+      <div class="section-body" id="body-profiles">
+        <div class="profile-grid" id="profileGrid" role="group" aria-label="Accessibility profiles"></div>
+        <button type="button" id="btnTurnOff" class="btn btn-quiet btn-full">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-power"/></svg>
+          Turn everything off
+        </button>
+      </div>
+    </section>
+
+    <!-- Schema-driven sections are rendered here by popup.js. -->
+    <div id="sections"></div>
+
+    <!-- ── Page check ───────────────────────────────────────────────── -->
+    <section class="section" id="section-audit">
+      <h2 class="section-heading">
+        <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-audit">
+          <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>
+          <span class="section-title">
+            <span class="section-label">Check this page</span>
+            <span class="section-desc">See how accessible the website itself is.</span>
+          </span>
+          <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+        </button>
+      </h2>
+      <div class="section-body" id="body-audit" hidden>
+        <button type="button" class="btn btn-primary btn-full" id="btnRunAudit">Check this page now</button>
+
+        <div id="auditScoreArea" class="score-area" hidden>
+          <div class="score-dial" id="auditScoreCircle">
+            <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false" class="score-ring">
+              <circle class="score-ring-track" cx="60" cy="60" r="52"/>
+              <circle class="score-ring-value" cx="60" cy="60" r="52" id="scoreRingValue"/>
+            </svg>
+            <p class="score-number"><span id="auditScoreValue">0</span><span class="score-max">/100</span></p>
+          </div>
+          <p class="score-caption" id="auditScoreCaption"></p>
+        </div>
+
+        <div id="auditResultsList" class="issue-list" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- ── Your settings ────────────────────────────────────────────── -->
+    <section class="section" id="section-data">
+      <h2 class="section-heading">
+        <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-data">
+          <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-slider"/></svg>
+          <span class="section-title">
+            <span class="section-label">Your settings</span>
+            <span class="section-desc">Save them, move them, or start again.</span>
+          </span>
+          <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+        </button>
+      </h2>
+      <div class="section-body" id="body-data" hidden>
+        <p class="panel-note">
+          AccessiFlow remembers your choices for each website separately, so a
+          site you find hard can stay adjusted without changing the rest.
+        </p>
+        <div class="stack">
+          <button type="button" class="btn btn-quiet btn-full" id="btnExportSettings">Save my settings to a file</button>
+          <button type="button" class="btn btn-quiet btn-full" id="btnImportSettings">Load settings from a file</button>
+          <input type="file" id="importFile" accept=".json" hidden>
+          <button type="button" class="btn btn-danger btn-full" id="btnResetSettings">Start again for this site</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────────────────── -->
+  <footer class="app-footer">
+    <p id="liveStatus" class="live-status" role="status" aria-live="polite"></p>
+    <p class="shortcut-hint"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> turns AccessiFlow on and off</p>
   </footer>
 
+  <!-- ── Dialog ─────────────────────────────────────────────────────── -->
+  <!-- Replaces confirm()/alert(), which cannot be styled, cannot be made
+       high contrast, and close the popup on some platforms. -->
+  <div class="dialog-backdrop" id="dialogBackdrop" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle" aria-describedby="dialogBody" id="dialog">
+      <h2 id="dialogTitle"></h2>
+      <p id="dialogBody"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-quiet" id="dialogCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="dialogConfirm">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup-schema.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-// AccessiFlow — NeuroModule
+// AccessiFlow NeuroModule
 // Neurodiverse support: autism, ADHD, sensory processing
 // Custom color themes, content warnings, focus timer, visual clutter reduction
 'use strict';

@@ -1,4 +1,4 @@
-// AccessiFlow — VisionModule
+// AccessiFlow VisionModule
 // Text size, line height, letter spacing, contrast, dark mode, color filters, etc.
 'use strict';
 

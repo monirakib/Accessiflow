@@ -1,4 +1,4 @@
-// AccessiFlow — HearingModule
+// AccessiFlow HearingModule
 // Caption images, mute videos, closed caption support
 'use strict';
 

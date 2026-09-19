@@ -1,4 +1,4 @@
-// AccessiFlow — MotorModule
+// AccessiFlow MotorModule
 // Large cursor, focus ring, big targets, click assist, stop animations, sticky hover
 'use strict';
 
@@ -134,7 +134,7 @@ class MotorModule {
     } catch (e) { this._warn('applyClickAssist: ' + e.message); }
   }
 
-  // ── 5. Stop animations — pause videos ─────────────────────
+  // ── 5. Stop animations, pause videos ─────────────────────
   applyStopAnimations(active) {
     try {
       if (active) {
@@ -217,7 +217,7 @@ class MotorModule {
           const dy = Math.abs(e.clientY - lastY);
 
           if (dx > 10 || dy > 10) {
-            // Mouse moved — reset
+            // Mouse moved, reset
             lastX = e.clientX;
             lastY = e.clientY;
             if (this._dwellTimer) { clearTimeout(this._dwellTimer); this._dwellTimer = null; }

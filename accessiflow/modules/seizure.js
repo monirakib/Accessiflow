@@ -1,4 +1,4 @@
-// AccessiFlow — SeizureModule
+// AccessiFlow SeizureModule
 // Seizure & Vestibular disorder protections
 // Flash detection, reduce motion, static GIFs, remove BG videos
 'use strict';
@@ -56,7 +56,7 @@ class SeizureModule {
   applyFlashDetection(active) {
     try {
       if (active) {
-        this._log('Flash detection enabled — monitoring videos');
+        this._log('Flash detection enabled, monitoring videos');
         // Find all videos and monitor luminance changes
         const videos = document.querySelectorAll('video');
         videos.forEach(video => {
@@ -87,7 +87,7 @@ class SeizureModule {
               const now = Date.now();
               if (now - lastResetTime > 1000) {
                 if (flashCount > 3) {
-                  // WCAG 2.3.1 violation — pause
+                  // WCAG 2.3.1 violation, pause
                   video.pause();
                   this._warn('Video paused: >3 flashes per second detected');
                   this._injectFlashWarning(video);
@@ -174,7 +174,7 @@ class SeizureModule {
             img.setAttribute('data-accessiflow-frozen', 'true');
             img.src = dataUrl;
             this._frozenGifs.push(img);
-          } catch (e) { /* CORS — can't freeze cross-origin */ }
+          } catch (e) { /* CORS, can't freeze cross-origin */ }
         });
         this._log('Froze ' + this._frozenGifs.length + ' GIFs');
       } else {

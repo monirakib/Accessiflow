@@ -1,4 +1,4 @@
-// AccessiFlow — AuditModule
+// AccessiFlow AuditModule
 // Full WCAG 2.2 audit: Level A + AA + 2.2 new criteria
 // Returns { score: 0-100, issues: [] }
 'use strict';
@@ -37,7 +37,7 @@ class AuditModule {
     const issues = [];
     const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
     if (headings.length === 0) {
-      issues.push(this._issue('warn', '1.3.1', 'No headings found — content structure unclear', 0));
+      issues.push(this._issue('warn', '1.3.1', 'No headings found, so the page has no clear structure', 0));
     } else {
       // Check heading order
       let lastLevel = 0;
@@ -174,7 +174,7 @@ class AuditModule {
     interactive.forEach(el => {
       try {
         const cs = window.getComputedStyle(el, ':focus');
-        // Can't fully check :focus styles programmatically — warn if outline: none
+        // Can't fully check :focus styles programmatically, warn if outline: none
         const outline = window.getComputedStyle(el).outlineStyle;
         if (outline === 'none') noFocus++;
       } catch (e) { /* skip */ }
@@ -217,7 +217,7 @@ class AuditModule {
     const captchas = document.querySelectorAll('[class*="captcha"], [id*="captcha"], [class*="recaptcha"]');
     const issues = [];
     if (captchas.length > 0) {
-      issues.push(this._issue('warn', '3.3.8', 'CAPTCHA detected — may be a cognitive barrier', captchas.length));
+      issues.push(this._issue('warn', '3.3.8', 'CAPTCHA detected, which can be a cognitive barrier', captchas.length));
     }
     if (issues.length === 0) return [this._issue('pass', '3.3.8', 'No cognitive authentication barriers detected', 0)];
     return issues;

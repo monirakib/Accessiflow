@@ -1,4 +1,4 @@
-// AccessiFlow — SpeechModule
+// AccessiFlow SpeechModule
 // Speech disability support: text input alternatives, AAC board, pre-built responses
 'use strict';
 

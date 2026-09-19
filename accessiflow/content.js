@@ -1,4 +1,4 @@
-// AccessiFlow — Content Script Orchestrator
+// AccessiFlow content script orchestrator
 // Guards against double-injection, initializes modules, routes messages
 'use strict';
 
@@ -258,7 +258,7 @@
           _log('Loaded saved settings for ' + location.hostname);
           applySettings(data[key]);
         } else {
-          // No saved settings — just run blind module
+          // No saved settings, so just run the blind module
           if (blindMode && blindModule) {
             try { blindModule.runAll(); } catch (e) { _warn('Blind auto-run error: ' + e.message); }
           }
@@ -332,34 +332,55 @@
           }
           break;
 
-        case 'aiGenerateAltText':
+        case 'aiDescribeImages':
           if (aiModule) {
-            aiModule.processAllImages().then(count => {
-              sendResponse({ success: true, count });
-            });
+            aiModule.describeAllImages((done, total) => {
+              chrome.runtime.sendMessage({
+                action: 'aiProgress', kind: 'images', done: done, total: total
+              }, () => { void chrome.runtime.lastError; });
+            }).then(result => sendResponse({ success: true, result: result }));
             return true; // async
           }
-          sendResponse({ success: false, error: 'AIModule not loaded' });
+          sendResponse({ success: false, error: 'The AI helper is not loaded on this page.' });
           break;
 
-        case 'aiPageSummary':
+        case 'aiSummarizePage':
           if (aiModule) {
-            aiModule.generatePageSummary().then(summary => {
-              sendResponse({ success: true, summary });
-            });
+            aiModule.summarizePage()
+              .then(summary => sendResponse({ success: true, summary: summary }))
+              .catch(err => sendResponse({ success: false, error: err.message }));
             return true;
           }
-          sendResponse({ success: false, error: 'AIModule not loaded' });
+          sendResponse({ success: false, error: 'The AI helper is not loaded on this page.' });
           break;
 
         case 'aiFixLinks':
           if (aiModule) {
-            aiModule.processAllVagueLinks().then(count => {
-              sendResponse({ success: true, count });
-            });
+            aiModule.relabelAllLinks((done, total) => {
+              chrome.runtime.sendMessage({
+                action: 'aiProgress', kind: 'links', done: done, total: total
+              }, () => { void chrome.runtime.lastError; });
+            }).then(result => sendResponse({ success: true, result: result }));
             return true;
           }
-          sendResponse({ success: false, error: 'AIModule not loaded' });
+          sendResponse({ success: false, error: 'The AI helper is not loaded on this page.' });
+          break;
+
+        case 'aiCancel':
+          if (aiModule) aiModule.cancel();
+          sendResponse({ success: true });
+          break;
+
+        case 'aiCounts':
+          if (aiModule) {
+            sendResponse({
+              success: true,
+              images: aiModule.countImagesNeedingAlt(),
+              links: aiModule.countVagueLinks()
+            });
+          } else {
+            sendResponse({ success: false, images: 0, links: 0 });
+          }
           break;
 
         case 'ttsReadPage':
@@ -423,12 +444,9 @@
     let handled = false;
 
     switch (key) {
-      case 'A': // Toggle extension
-        extensionEnabled = !extensionEnabled;
-        if (!extensionEnabled) destroyAll();
-        else loadSettings();
-        handled = true;
-        break;
+      // Alt+Shift+A is owned by the manifest `commands` entry, which routes
+      // through the service worker to the toggleExtension message below.
+      // Handling it here as well made the two cancel each other out.
       case 'R': // Read page
         if (ttsEngine) ttsEngine.readPage();
         handled = true;
@@ -457,7 +475,7 @@
         applySettings(currentSettings);
         handled = true;
         break;
-      case 'N': // Next heading — handled by BlindModule
+      case 'N': // Next heading, handled by BlindModule
         break;
     }
 

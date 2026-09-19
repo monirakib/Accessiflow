@@ -1,229 +1,290 @@
-// AccessiFlow — AIModule (Claude API Integration)
-// Alt text generation, page summaries, link context via Claude API
+// AccessiFlow AIModule
+// Finds what needs describing, prepares it, and applies what comes back.
+//
+// This module never touches an API key and never talks to a model provider.
+// It asks the service worker, which is the extension's only AI client. There
+// is nothing here for a user to configure and nothing here worth extracting.
 'use strict';
 
 class AIModule {
   constructor() {
+    this.cfg = (typeof globalThis !== 'undefined' && globalThis.ACCESSIFLOW_AI_CONFIG) || null;
+    this.cancelled = false;
     this._log('AIModule loaded');
   }
 
   _log(msg) { console.log('[AccessiFlow][AI] ' + msg); }
   _warn(msg) { console.warn('[AccessiFlow][AI] ' + msg); }
 
-  // ── API Key Management ────────────────────────────────────
+  // ── Talking to the service worker ───────────────────────────────────────
 
-  async getStoredAPIKey() {
-    return new Promise(resolve => {
-      chrome.storage.local.get('accessiflow_claude_api_key', data => {
-        resolve(data.accessiflow_claude_api_key || '');
+  _ask(action, payload) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(Object.assign({ action: action }, payload), response => {
+        if (chrome.runtime.lastError) {
+          reject(new Error('AccessiFlow lost its connection. Please try again.'));
+          return;
+        }
+        if (!response || !response.success) {
+          const err = new Error((response && response.error) || 'That did not work.');
+          err.code = response && response.code;
+          reject(err);
+          return;
+        }
+        resolve(response.text || '');
       });
     });
   }
 
-  async setAPIKey(key) {
-    return new Promise(resolve => {
-      chrome.storage.local.set({ accessiflow_claude_api_key: key }, () => {
-        this._log('API key saved');
-        resolve();
-      });
-    });
-  }
+  /** Lets the popup stop a long run part-way through. */
+  cancel() { this.cancelled = true; }
+  _resetCancel() { this.cancelled = false; }
 
-  async hasAPIKey() {
-    const key = await this.getStoredAPIKey();
-    return !!key;
-  }
+  // ── Alt text (WCAG 1.1.1) ───────────────────────────────────────────────
 
-  // ── Claude API Helper ─────────────────────────────────────
+  /**
+   * Draws the image to a canvas at a reduced size and returns a data URL.
+   * Returns null for images the browser will not let us read (cross-origin
+   * without CORS headers), which is common and not an error worth reporting.
+   */
+  _toDataUrl(img) {
+    const cfg = this.cfg;
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h || w < cfg.IMAGE_MIN_EDGE || h < cfg.IMAGE_MIN_EDGE) return null;
 
-  async callClaude(messages, systemPrompt) {
-    const apiKey = await this.getStoredAPIKey();
-    if (!apiKey) {
-      this._warn('No API key set — skipping AI call');
-      return null;
-    }
+    const scale = Math.min(1, cfg.IMAGE_MAX_EDGE / Math.max(w, h));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 150,
-          system: systemPrompt,
-          messages: messages
-        })
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        this._warn('Claude API error ' + response.status + ': ' + errText);
-        return null;
-      }
-
-      const data = await response.json();
-      return data.content[0].text;
-    } catch (e) {
-      this._warn('callClaude failed: ' + e.message);
-      return null;
-    }
-  }
-
-  // ── Feature 1: Generate Alt Text ──────────────────────────
-
-  async generateAltText(imgElement) {
-    if (!imgElement || imgElement.tagName !== 'IMG') return null;
-    if (imgElement.getAttribute('data-accessiflow-ai-alt') === 'true') return imgElement.alt;
-
-    this._log('Generating alt text for image: ' + (imgElement.src || '').substring(0, 80));
-
-    // Convert image to base64 via canvas
-    let base64 = null;
-    try {
-      const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      canvas.width = Math.min(imgElement.naturalWidth || 300, 512);
-      canvas.height = Math.min(imgElement.naturalHeight || 300, 512);
-      ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
-      base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-    } catch (e) {
-      this._warn('Cannot convert image to base64 (CORS?): ' + e.message);
-      return null;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', cfg.IMAGE_QUALITY);
+    } catch (_) {
+      return null; // tainted canvas
     }
-
-    const systemPrompt = "You are an accessibility expert. Generate concise, descriptive alt text for this image following WCAG 1.1.1 guidelines. Keep it under 125 characters. Do not start with 'Image of' or 'Picture of'. Describe what is meaningful and relevant. Respond with ONLY the alt text, nothing else.";
-
-    const messages = [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: 'image/jpeg',
-              data: base64
-            }
-          },
-          {
-            type: 'text',
-            text: 'Generate alt text for this image.'
-          }
-        ]
-      }
-    ];
-
-    const altText = await this.callClaude(messages, systemPrompt);
-    if (altText) {
-      imgElement.setAttribute('alt', altText);
-      imgElement.setAttribute('data-accessiflow-ai-alt', 'true');
-      this._log('Alt text applied: "' + altText + '"');
-    }
-    return altText;
   }
 
-  // ── Feature 2: Generate Page Summary ──────────────────────
+  /** Nearby text helps the model tell a decorative photo from a chart. */
+  _imageContext(img) {
+    const figure = img.closest('figure');
+    const caption = figure ? figure.querySelector('figcaption') : null;
+    if (caption && caption.textContent.trim()) return caption.textContent.trim().slice(0, 300);
 
-  async generatePageSummary() {
-    const main = document.querySelector('main, [role="main"], article, .content, #content');
-    const contentEl = main || document.body;
-    const text = (contentEl.innerText || '').substring(0, 2000).trim();
+    const container = img.closest('p, li, td, section, article, div');
+    return container ? (container.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+  }
 
-    if (!text || text.length < 50) {
-      this._warn('Not enough page content for a summary');
-      return null;
+  async describeImage(img) {
+    if (!img || img.tagName !== 'IMG') return null;
+    if (img.getAttribute('data-accessiflow-ai-alt') === 'true') return img.alt;
+
+    const dataUrl = this._toDataUrl(img);
+    if (!dataUrl) return null;
+
+    const text = await this._ask('aiDescribeImage', {
+      image: dataUrl,
+      hint: this._imageContext(img)
+    });
+
+    if (text) {
+      img.setAttribute('alt', text);
+      img.setAttribute('data-accessiflow-ai-alt', 'true');
+      this._log('Described: "' + text + '"');
     }
+    return text;
+  }
 
-    this._log('Generating page summary...');
+  /**
+   * Never describe a CAPTCHA. Its whole job is to be unreadable to software,
+   * so describing one would defeat the site's security check, and sending it
+   * to an outside service is not ours to do.
+   */
+  _isCaptcha(img) {
+    const own = [img.id, img.className, img.getAttribute('src') || '', img.getAttribute('name') || ''].join(' ');
+    if (/captcha/i.test(own)) return true;
+    return Boolean(img.closest('[id*="captcha" i], [class*="captcha" i]'));
+  }
 
-    const systemPrompt = "Summarize this webpage content in one sentence (max 100 words) for a blind user arriving on the page. Focus on the purpose and main content.";
-    const messages = [
-      { role: 'user', content: text }
-    ];
+  /**
+   * Images that carry meaning but have no real description yet.
+   *
+   * Screen reader repairs (on by default) runs first and gives every such
+   * image the placeholder "[Image - description unavailable]", marked with
+   * data-accessiflow-alt-repaired="placeholder". That text is a stand-in for
+   * exactly what this module writes, so it must not count as a description,
+   * or every picture on the page looks "already described".
+   */
+  _imagesNeedingAlt() {
+    const all = document.querySelectorAll('img:not([data-accessiflow-ai-alt])');
+    return Array.from(all).filter(img => {
+      const placeholder = img.getAttribute('data-accessiflow-alt-repaired') === 'placeholder';
+      if (!placeholder && img.alt && img.alt.trim()) return false; // already described
+      if (this._isCaptcha(img)) return false;
+      if (img.getAttribute('role') === 'presentation') return false;
+      if (img.getAttribute('aria-hidden') === 'true') return false;
+      if (img.alt === '' && img.hasAttribute('alt')) return false; // marked decorative
+      const rect = img.getBoundingClientRect();
+      return rect.width >= this.cfg.IMAGE_MIN_EDGE && rect.height >= this.cfg.IMAGE_MIN_EDGE;
+    });
+  }
 
-    const summary = await this.callClaude(messages, systemPrompt);
-    if (summary) {
-      // Inject into an aria-live region
-      let liveRegion = document.getElementById('accessiflow-page-summary');
-      if (!liveRegion) {
-        liveRegion = document.createElement('div');
-        liveRegion.id = 'accessiflow-page-summary';
-        liveRegion.setAttribute('aria-live', 'polite');
-        liveRegion.setAttribute('role', 'status');
-        liveRegion.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;';
-        document.body.appendChild(liveRegion);
+  countImagesNeedingAlt() { return this._imagesNeedingAlt().length; }
+
+  /**
+   * @param {function} onProgress called as (done, total, lastResult)
+   * @returns {{described:number, total:number, skipped:number, error:?string}}
+   */
+  async describeAllImages(onProgress) {
+    this._resetCancel();
+    const targets = this._imagesNeedingAlt().slice(0, this.cfg.MAX_IMAGES_PER_RUN);
+    let described = 0;
+    let skipped = 0;
+    let error = null;
+
+    for (let i = 0; i < targets.length; i++) {
+      if (this.cancelled) break;
+      try {
+        const text = await this.describeImage(targets[i]);
+        if (text) described++; else skipped++;
+      } catch (err) {
+        // A quota or outage affects every remaining image, so stop rather than
+        // hammer the proxy with calls that will fail the same way.
+        error = err.message;
+        break;
       }
-      liveRegion.textContent = 'Page summary: ' + summary;
-      this._log('Page summary injected: "' + summary.substring(0, 80) + '..."');
+      if (onProgress) onProgress(i + 1, targets.length);
+      await this._pause();
     }
+
+    this._log('Described ' + described + ' of ' + targets.length + ' images');
+    return { described: described, total: targets.length, skipped: skipped, error: error };
+  }
+
+  // ── Page summary (WCAG 3.1.5) ───────────────────────────────────────────
+
+  _mainText() {
+    const main = document.querySelector('main, [role="main"], article, #content, .content');
+    const source = main || document.body;
+    const clone = source.cloneNode(true);
+    clone.querySelectorAll('script, style, nav, footer, aside, noscript').forEach(el => el.remove());
+    return (clone.innerText || clone.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, this.cfg.PAGE_TEXT_LIMIT);
+  }
+
+  async summarizePage() {
+    const text = this._mainText();
+    if (text.length < 80) {
+      throw new Error('There is not enough text on this page to summarise.');
+    }
+
+    const summary = await this._ask('aiSummarizeText', { text: text });
+    if (summary) this._announceSummary(summary);
     return summary;
   }
 
-  // ── Feature 3: Generate Link Context ──────────────────────
+  /**
+   * Puts the summary where a screen reader will read it, and where a sighted
+   * user with a reading difficulty can also see it. Earlier versions hid this
+   * off-screen, which helped nobody who reads with their eyes.
+   */
+  _announceSummary(summary) {
+    let panel = document.getElementById('accessiflow-page-summary');
+    if (!panel) {
+      panel = document.createElement('aside');
+      panel.id = 'accessiflow-page-summary';
+      panel.setAttribute('role', 'status');
+      panel.setAttribute('aria-live', 'polite');
+      panel.setAttribute('aria-label', 'Page summary from AccessiFlow');
+      panel.className = 'accessiflow-summary-panel';
 
-  async generateLinkContext(anchor) {
-    if (!anchor || anchor.tagName !== 'A') return null;
-    if (anchor.getAttribute('data-accessiflow-ai-link') === 'true') return anchor.getAttribute('aria-label');
+      const heading = document.createElement('h2');
+      heading.className = 'accessiflow-summary-heading';
+      heading.textContent = 'Page summary';
 
-    const text = (anchor.textContent || '').trim().toLowerCase();
-    const vagueTexts = ['click here', 'here', 'read more', 'more', 'this', 'link', 'learn more', 'details', 'continue'];
-    if (!vagueTexts.includes(text)) return null;
+      const body = document.createElement('p');
+      body.className = 'accessiflow-summary-text';
 
-    // Get surrounding context
-    const parent = anchor.closest('p, li, div, td, span');
-    const context = parent ? (parent.textContent || '').substring(0, 200).trim() : '';
+      const dismiss = document.createElement('button');
+      dismiss.type = 'button';
+      dismiss.className = 'accessiflow-summary-close';
+      dismiss.textContent = 'Close summary';
+      dismiss.addEventListener('click', () => panel.remove());
 
-    this._log('Generating link context for: "' + text + '"');
+      panel.append(heading, body, dismiss);
+      document.body.prepend(panel);
+    }
 
-    const systemPrompt = "Generate a descriptive aria-label for this link based on context. The visible text is '" + text + "'. The surrounding context is '" + context + "'. Respond with ONLY the aria-label text, max 60 characters.";
-    const messages = [
-      { role: 'user', content: 'Link text: "' + text + '"\nSurrounding context: "' + context + '"' }
-    ];
+    panel.querySelector('.accessiflow-summary-text').textContent = summary;
+    const closeBtn = panel.querySelector('.accessiflow-summary-close');
+    if (closeBtn) closeBtn.focus();
+  }
 
-    const label = await this.callClaude(messages, systemPrompt);
+  // ── Link names (WCAG 2.4.4) ─────────────────────────────────────────────
+
+  _isVague(anchor) {
+    const text = (anchor.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!text) return false;
+    if (anchor.getAttribute('aria-label')) return false; // already has a name
+    return this.cfg.VAGUE_LINK_TEXTS.indexOf(text) !== -1;
+  }
+
+  _vagueLinks() {
+    const all = document.querySelectorAll('a[href]:not([data-accessiflow-ai-link])');
+    return Array.from(all).filter(a => this._isVague(a));
+  }
+
+  countVagueLinks() { return this._vagueLinks().length; }
+
+  async relabelLink(anchor) {
+    if (!anchor || !this._isVague(anchor)) return null;
+
+    const container = anchor.closest('p, li, td, div, section, article');
+    const context = container
+      ? (container.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 400)
+      : '';
+
+    const label = await this._ask('aiLabelLink', {
+      linkText: (anchor.textContent || '').trim(),
+      context: context
+    });
+
     if (label) {
       anchor.setAttribute('aria-label', label);
       anchor.setAttribute('data-accessiflow-ai-link', 'true');
-      this._log('Link context applied: "' + label + '"');
+      this._log('Relabelled link: "' + label + '"');
     }
     return label;
   }
 
-  // ── Batch: Process All images / links ─────────────────────
+  async relabelAllLinks(onProgress) {
+    this._resetCancel();
+    const targets = this._vagueLinks().slice(0, this.cfg.MAX_LINKS_PER_RUN);
+    let fixed = 0;
+    let error = null;
 
-  async processAllImages() {
-    const imgs = document.querySelectorAll('img:not([data-accessiflow-ai-alt])');
-    const noAlt = Array.from(imgs).filter(i => !i.alt || !i.alt.trim());
-    this._log('Processing ' + noAlt.length + ' images without alt text');
-    let processed = 0;
-    for (const img of noAlt) {
-      const result = await this.generateAltText(img);
-      if (result) processed++;
-      // Small delay to avoid rate limiting
-      await new Promise(r => setTimeout(r, 500));
+    for (let i = 0; i < targets.length; i++) {
+      if (this.cancelled) break;
+      try {
+        if (await this.relabelLink(targets[i])) fixed++;
+      } catch (err) {
+        error = err.message;
+        break;
+      }
+      if (onProgress) onProgress(i + 1, targets.length);
+      await this._pause();
     }
-    this._log('AI alt text generated for ' + processed + '/' + noAlt.length + ' images');
-    return processed;
+
+    this._log('Relabelled ' + fixed + ' of ' + targets.length + ' links');
+    return { fixed: fixed, total: targets.length, error: error };
   }
 
-  async processAllVagueLinks() {
-    const anchors = document.querySelectorAll('a:not([data-accessiflow-ai-link])');
-    const vagueTexts = ['click here', 'here', 'read more', 'more', 'this', 'link', 'learn more', 'details', 'continue'];
-    const vague = Array.from(anchors).filter(a => vagueTexts.includes((a.textContent || '').trim().toLowerCase()));
-    this._log('Processing ' + vague.length + ' vague links');
-    let processed = 0;
-    for (const a of vague) {
-      const result = await this.generateLinkContext(a);
-      if (result) processed++;
-      await new Promise(r => setTimeout(r, 500));
-    }
-    this._log('AI link context generated for ' + processed + '/' + vague.length + ' links');
-    return processed;
+  _pause() {
+    return new Promise(resolve => setTimeout(resolve, this.cfg.REQUEST_SPACING_MS));
   }
 }
 

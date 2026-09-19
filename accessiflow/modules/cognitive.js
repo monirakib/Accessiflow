@@ -1,4 +1,4 @@
-// AccessiFlow — CognitiveModule
+// AccessiFlow CognitiveModule
 // Reading mask, line ruler, simplify page, heading structure, alt text tooltips, pause media
 'use strict';
 
@@ -170,7 +170,7 @@ class CognitiveModule {
             this._tooltipEl.textContent = 'Alt: ' + alt;
             this._tooltipEl.style.borderColor = '#4fffb0';
           } else {
-            this._tooltipEl.textContent = '⚠ Missing alt text — WCAG 1.1.1 violation';
+            this._tooltipEl.textContent = '⚠ Missing alt text (WCAG 1.1.1 violation)';
             this._tooltipEl.style.borderColor = '#ef4444';
           }
           this._tooltipEl.style.display = 'block';

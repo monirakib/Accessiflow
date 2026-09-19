@@ -1,4 +1,4 @@
-// AccessiFlow — BanglaModule
+// AccessiFlow BanglaModule
 // Bangla/Bengali language-specific accessibility features
 // Bangla font optimization, TTS voice priority, form labels, RTL detection
 'use strict';

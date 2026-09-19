@@ -1,0 +1,16 @@
+{
+  "name": "accessiflow-ai-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI proxy for the AccessiFlow accessibility extension. Holds the Hugging Face token server-side so it can never be extracted from the extension.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "secrets": "wrangler secret put HF_TOKEN && wrangler secret put TOKEN_SIGNING_KEY",
+    "test": "node test/worker.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,4 +1,4 @@
-// AccessiFlow — BlindModule (Most Critical)
+// AccessiFlow BlindModule (Most Critical)
 // Silently repairs accessibility tree for screen readers
 // Repairs: alt text, empty links/buttons, form labels, landmarks, ARIA, skip links, tab order, tables
 'use strict';
@@ -118,10 +118,11 @@ class BlindModule {
               repaired++;
             }
           } else {
-            // Content image without alt — add placeholder
-            if (!hasAlt || (altVal !== null && altVal.trim() === '')) {
-              const original = hasAlt ? altVal : null;
-              this._trackRepair(img, 'alt', original);
+            // Content image with no alt attribute at all: add a placeholder. An
+            // explicit alt="" is the author marking the image decorative (WCAG
+            // technique H67), so it stays silent rather than becoming noise.
+            if (!hasAlt) {
+              this._trackRepair(img, 'alt', null);
               img.setAttribute('alt', '[Image - description unavailable]');
               img.setAttribute('data-accessiflow-alt-repaired', 'placeholder');
               repaired++;
@@ -460,7 +461,7 @@ class BlindModule {
         });
       }
 
-      // Banner — <header> not inside article/section
+      // Banner, <header> not inside article/section
       const headers = document.querySelectorAll('header');
       headers.forEach(header => {
         try {
@@ -473,7 +474,7 @@ class BlindModule {
         } catch (e) { /* skip */ }
       });
 
-      // Contentinfo — <footer> not inside article/section
+      // Contentinfo, <footer> not inside article/section
       const footers = document.querySelectorAll('footer');
       footers.forEach(footer => {
         try {
@@ -1196,7 +1197,7 @@ class BlindModule {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // repairNode — called by MutationObserver for new DOM nodes
+  // repairNode, called by MutationObserver for new DOM nodes
   // ═══════════════════════════════════════════════════════════
   repairNode(node) {
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
@@ -1214,7 +1215,7 @@ class BlindModule {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // runAll — executes all repair functions on the full page
+  // runAll, executes all repair functions on the full page
   // ═══════════════════════════════════════════════════════════
   runAll() {
     this._log('Running all accessibility repairs...');
@@ -1240,13 +1241,17 @@ class BlindModule {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // destroy — undo all repairs and clean up
+  // destroy, undo all repairs and clean up
   // ═══════════════════════════════════════════════════════════
   destroy() {
     try {
       // Restore all tracked repairs
       this._repairs.forEach(r => {
         try {
+          // An AI description written over our placeholder is not ours to
+          // undo: the user asked for it and it cost a request to make. Undoing
+          // it would also strand the image, since it stays marked as described.
+          if (r.attribute === 'alt' && r.element.getAttribute('data-accessiflow-ai-alt') === 'true') return;
           if (r.originalValue === null) {
             r.element.removeAttribute(r.attribute);
           } else {
@@ -1334,7 +1339,7 @@ class BlindModule {
   }
 }
 
-// Export for content.js (IIFE/module pattern — no bundler)
+// Export for content.js (IIFE/module pattern, no bundler)
 if (typeof window !== 'undefined') {
   window.BlindModule = BlindModule;
 }
