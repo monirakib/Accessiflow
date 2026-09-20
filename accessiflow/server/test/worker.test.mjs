@@ -9,6 +9,8 @@ const eq = (a, b, what) => {
   if (a !== b) throw new Error(what + ': expected ' + JSON.stringify(b) + ' got ' + JSON.stringify(a));
 };
 
+const ok = (cond, what) => { if (!cond) throw new Error(what); };
+
 const makeKV = () => {
   const m = new Map();
   return { get: async k => (m.has(k) ? m.get(k) : null), put: async (k, v) => { m.set(k, v); } };
@@ -195,6 +197,27 @@ await t('alt text is stripped of quotes, preamble and trailing stop', async () =
     post('/v1/describe-image', { image: 'data:image/jpeg;base64,AAAA' }, { token }), env);
   const body = await res.json();
   eq(body.text, 'A tabby cat asleep on a keyboard', 'tidied alt text');
+});
+
+await t('a long description is cut on a word boundary, not mid-word', async () => {
+  const env = baseEnv();
+  const token = await register(env);
+  const long = 'Bangladesh Election Commission fee schedule for national identity card ' +
+               'issuance, replacement and amendments effective September 2015 onwards';
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ message: { content: long } }]
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  const res = await worker.fetch(
+    post('/v1/describe-image', { image: 'data:image/jpeg;base64,AAAA' }, { token }), env);
+  const body = await res.json();
+  globalThis.fetch = stubHF;
+
+  ok(body.text.length <= 125, 'within the alt text limit: ' + body.text.length);
+  ok(long.startsWith(body.text), 'still a prefix of what the model said');
+  ok(!/[\s,;:–—-]$/.test(body.text), 'no dangling punctuation: "' + body.text + '"');
+  ok(long[body.text.length] === ' ' || long.length === body.text.length,
+     'cut fell on a word boundary');
 });
 
 await t('upstream failure gives a plain message, never a status code or model name', async () => {

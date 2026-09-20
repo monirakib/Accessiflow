@@ -24,6 +24,19 @@
   outline-offset: 2px;
 }
 
+/* ── Pictures that speak (Describe pictures out loud) ────── */
+/* The pointer and the focus ring are the only hint a sighted user gets that
+   a picture can be pressed; a screen reader user gets the focus stop. */
+[data-accessiflow-speak] { cursor: pointer; }
+[data-accessiflow-speak]:focus-visible {
+  outline: 4px solid #ffd166 !important;
+  outline-offset: 3px !important;
+}
+.accessiflow-image-busy {
+  outline: 4px dashed #4fffb0 !important;
+  outline-offset: 3px !important;
+}
+
 /* ── TTS Highlight ───────────────────────────────────────── */
 .accessiflow-tts-highlight {
   outline: 3px solid #4fffb0 !important;

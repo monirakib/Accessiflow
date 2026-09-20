@@ -40,10 +40,22 @@ const dom = new JSDOM(fs.readFileSync(path.join(ROOT, 'popup.html'), 'utf8'), {
 const { window } = dom;
 window.chrome = chrome;
 
+// The browser owns the voice list, not the schema, and hands it over late.
+// A Bangla voice is included so the picker can be checked for one.
+window.speechSynthesis = {
+  getVoices: () => ([
+    { name: 'Microsoft David - English (United States)', lang: 'en-US' },
+    { name: 'Google \u09ac\u09be\u0982\u09b2\u09be', lang: 'bn-BD' }
+  ]),
+  addEventListener() {},
+  cancel() {},
+  speak() {}
+};
+
 const uncaught = [];
 window.addEventListener('error', e => uncaught.push(e.message));
 
-for (const f of ['popup-schema.js', 'popup.js']) {
+for (const f of ['modules/profiles.js', 'popup-schema.js', 'popup.js']) {
   window.eval(fs.readFileSync(path.join(ROOT, f), 'utf8'));
 }
 window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
@@ -57,10 +69,26 @@ check(uncaught.length === 0, 'no uncaught errors' + (uncaught.length ? ': ' + un
 const switches = $$('input[type="checkbox"][role="switch"]');
 const ranges = $$('input[type="range"]');
 const selects = $$('select');
-check(switches.length === 62, 'switches rendered: ' + switches.length);
+check(switches.length === 64, 'switches rendered: ' + switches.length);
 check(ranges.length === 14, 'sliders rendered (13 page + 1 panel scale): ' + ranges.length);
-check(selects.length === 5, 'selects rendered (4 page + 1 disability filter): ' + selects.length);
+check(selects.length === 6, 'selects rendered (5 page + 1 disability filter): ' + selects.length);
+{
+  // Someone whose language has no voice installed can only find that out by
+  // seeing the list, so the picker shows every voice with its language tag.
+  const picker = doc.getElementById('ttsVoice');
+  const options = picker ? Array.from(picker.options).map(o => o.textContent) : [];
+  check(options[0] === 'Choose automatically', 'the voice picker defaults to automatic');
+  check(options.some(o => /bn-BD/.test(o)),
+    'it lists the browser voices with their language: ' + options.join(' | '));
+}
+
 check($$('.profile-btn').length === 7, 'profile buttons: ' + $$('.profile-btn').length);
+{
+  // Each profile shows the keypress that applies it without this panel.
+  const keys = $$('.profile-btn').map(b => (b.textContent.match(/Alt\+Shift\+\d/) || [''])[0]);
+  check(keys.every(Boolean) && new Set(keys).size === 7,
+    'every profile names its own shortcut: ' + keys.join(', '));
+}
 check($$('.section').length === 13, 'sections: ' + $$('.section').length);
 
 // ── Every control has an accessible name and a description ──────────────────
@@ -219,9 +247,11 @@ function searchPanels() {
     typeSearch('ai', () => {
       const rows = $$('#sections .row').filter(r => !r.hidden && !r.closest('.section').hidden);
       check(!aiPanel().hidden, '"ai" finds Smart help');
-      check(rows.length === 0,
-        '"ai" matches from word starts, not inside explain/again: ' +
-        (rows.map(r => r.dataset.controlId).join(', ') || 'no stray rows'));
+      // Only the AI-powered setting should match, never a row that merely
+      // contains 'ai' inside explain, again or captions.
+      check(rows.map(r => r.dataset.controlId).join(',') === 'speakImageDescriptions',
+        '"ai" matches from word starts: ' +
+        (rows.map(r => r.dataset.controlId).join(', ') || 'no rows'));
 
       typeSearch('alt text', () => {
         check(!aiPanel().hidden, 'a keyword the panel never displays ("alt text") still finds it');

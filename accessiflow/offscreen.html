@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AccessiFlow speech</title>
+</head>
+<body>
+  <!--
+    Never seen by anyone. A content script cannot run WebAssembly on sites with
+    a strict content security policy, and audio it starts dies with the page.
+    This document belongs to the extension, so neither limit applies: it
+    synthesises speech for languages the computer has no voice for, and plays
+    it. See offscreen.js.
+  -->
+  <script src="vendor/espeak/espeak-ng.js"></script>
+  <script src="vendor/onnx/ort.wasm.min.js"></script>
+  <script src="piper.js"></script>
+  <script src="offscreen.js"></script>
+</body>
+</html>

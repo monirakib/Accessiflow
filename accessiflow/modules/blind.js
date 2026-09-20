@@ -87,6 +87,82 @@ class BlindModule {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // 0. repairPageLanguage  (WCAG 3.1.1 Language of Page)
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * The script most of this text is written in, as a language code.
+   *
+   * Script is not language: Latin could be English, French or a Bangla word
+   * spelled out in Latin letters. On a Bangla page it is nearly always
+   * English, and labelling it English is far better for a screen reader than
+   * leaving it to be read aloud in Bangla, so that is the assumption.
+   */
+  _scriptLanguage(text) {
+    const bangla = (text.match(/[\u0980-\u09FF]/g) || []).length;
+    const latin = (text.match(/[A-Za-z]/g) || []).length;
+    if (bangla > 8 && bangla > latin) return 'bn';
+    if (latin > 8 && bangla === 0) return 'en';
+    return null;
+  }
+
+  /**
+   * A screen reader picks its voice from the lang attribute. With none, it
+   * reads Bangla with an English voice, which is unusable. Plenty of Bangla
+   * government sites ship no lang at all, so this fills it in from the script
+   * actually on the page, and marks the parts that differ from the whole
+   * (WCAG 3.1.2), which is what makes a mixed page readable.
+   */
+  repairPageLanguage(root) {
+    try {
+      const scope = root || document;
+      let repaired = 0;
+      const html = document.documentElement;
+      const declared = (html.getAttribute('lang') || '').trim();
+      const pageLang = this._scriptLanguage((document.body.innerText || document.body.textContent || '').slice(0, 20000));
+
+      if (pageLang && !declared) {
+        this._trackRepair(html, 'lang', null);
+        html.setAttribute('lang', pageLang);
+        html.setAttribute('data-accessiflow-lang-repaired', 'page');
+        repaired++;
+        this._log('Page language set to ' + pageLang);
+      }
+
+      // Parts in another script than the page as a whole.
+      const pageIs = pageLang || declared.toLowerCase().split('-')[0] || 'en';
+      const blocks = scope.querySelectorAll(
+        'p, li, td, th, h1, h2, h3, h4, h5, h6, a, button, label, span, div, option');
+      blocks.forEach(el => {
+        try {
+          if (el.hasAttribute('lang') || el.hasAttribute('data-accessiflow-lang-repaired')) return;
+          // Only leaf-ish blocks: a wrapper would label its children twice.
+          if (el.querySelector('p, li, td, h1, h2, h3, h4, h5, h6')) return;
+
+          const text = (el.textContent || '').trim();
+          if (text.length < 4) return;
+          const lang = this._scriptLanguage(text);
+          if (!lang || lang === pageIs) return;
+          // Only worth marking when the page itself is in another script;
+          // on an English page, English parts need no label.
+          if (lang === 'en' && pageIs === 'en') return;
+
+          this._trackRepair(el, 'lang', null);
+          el.setAttribute('lang', lang);
+          el.setAttribute('data-accessiflow-lang-repaired', 'part');
+          repaired++;
+        } catch (e) { /* skip one element */ }
+      });
+
+      if (repaired > 0) this._log('Language repaired on ' + repaired + ' places');
+      return repaired;
+    } catch (e) {
+      this._warn('repairPageLanguage: ' + e.message);
+      return 0;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
   // 1. repairMissingAltText
   // ═══════════════════════════════════════════════════════════
   repairMissingAltText(root) {
@@ -1220,6 +1296,7 @@ class BlindModule {
   runAll() {
     this._log('Running all accessibility repairs...');
     try {
+      this.repairPageLanguage();
       this.repairMissingAltText();
       this.repairEmptyLinks();
       this.repairEmptyButtons();
@@ -1267,6 +1344,7 @@ class BlindModule {
         '[data-accessiflow-btn-repaired], [data-accessiflow-label-repaired], ' +
         '[data-accessiflow-live-repaired], [data-accessiflow-expanded-repaired], ' +
         '[data-accessiflow-table-repaired], [data-accessiflow-tabindex-repaired], ' +
+        '[data-accessiflow-lang-repaired], ' +
         '[data-accessiflow-injected]'
       ).forEach(el => {
         try {
@@ -1278,6 +1356,7 @@ class BlindModule {
           el.removeAttribute('data-accessiflow-expanded-repaired');
           el.removeAttribute('data-accessiflow-table-repaired');
           el.removeAttribute('data-accessiflow-tabindex-repaired');
+          el.removeAttribute('data-accessiflow-lang-repaired');
         } catch (e) { /* skip */ }
       });
 

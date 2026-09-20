@@ -312,6 +312,31 @@
     plus.disabled = value >= parseFloat(input.max);
   }
 
+  function fillVoices(select, control) {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    const fill = () => {
+      const chosen = settings[control.id] || select.value || '';
+      const voices = synth.getVoices() || [];
+
+      while (select.options.length > 1) select.remove(1);
+      voices.forEach(voice => {
+        const option = el('option', null, voice.name + ' (' + voice.lang + ')');
+        option.value = voice.name;
+        select.appendChild(option);
+      });
+
+      // A voice saved on another computer may not exist on this one; leaving
+      // the select on Automatic is the honest answer.
+      select.value = Array.from(select.options).some(o => o.value === chosen) ? chosen : '';
+    };
+
+    fill();
+    try { synth.addEventListener('voiceschanged', fill); }
+    catch (e) { synth.onvoiceschanged = fill; }
+  }
+
   function renderSelect(control) {
     const row = el('div', 'row control-row--select');
     const descId = 'desc-' + control.id;
@@ -328,6 +353,12 @@
       select.appendChild(node);
     });
     select.value = control.default;
+
+    // A voice list has to come from the browser, not the schema. It also
+    // arrives late: getVoices() is empty until Chrome has built it, so this
+    // fills in again when it changes. Seeing the list is the only way a user
+    // can tell whether their browser has a voice for their language at all.
+    if (control.voices) fillVoices(select, control);
 
     const desc = el('p', 'row-desc', control.desc);
     desc.id = descId;
@@ -407,6 +438,11 @@
         el('span', 'profile-label', profile.label),
         el('span', 'profile-desc', profile.desc)
       );
+      // The shortcut is part of the button's name on purpose: it is how
+      // someone who cannot see this panel learns the bundle exists at all.
+      if (profile.key) {
+        button.appendChild(el('span', 'profile-key', 'Alt+Shift+' + profile.key));
+      }
       button.addEventListener('click', () => toggleProfile(profile, button));
       grid.appendChild(button);
     });
@@ -930,6 +966,45 @@
 
   // ── Text to speech ──────────────────────────────────────────────────────
 
+  /**
+   * The natural Bangla voice is 73 MB, so it is never fetched behind the
+   * user's back: this button is the consent. Progress is announced rather
+   * than only drawn, because the people who need this voice cannot see a
+   * progress bar.
+   */
+  function initVoiceDownload() {
+    const button = $('#btnDownloadVoice');
+    if (!button) return;
+
+    const setLabel = text => { button.textContent = text; };
+
+    chrome.runtime.sendMessage({ action: 'voiceStatus' }, reply => {
+      void chrome.runtime.lastError;
+      if (reply && reply.downloaded) {
+        setLabel('Natural Bangla voice is ready');
+        button.disabled = true;
+      }
+    });
+
+    button.addEventListener('click', () => {
+      button.disabled = true;
+      setLabel('Downloading the natural voice…');
+      announce('Downloading the natural Bangla voice. This happens once, and is about 73 megabytes.');
+
+      chrome.runtime.sendMessage({ action: 'downloadVoice' }, reply => {
+        void chrome.runtime.lastError;
+        if (reply && reply.success) {
+          setLabel('Natural Bangla voice is ready');
+          announce('The natural Bangla voice is ready. Turn it on with the switch above.');
+        } else {
+          button.disabled = false;
+          setLabel('Download the natural Bangla voice');
+          announce((reply && reply.error) || 'The voice could not be downloaded.');
+        }
+      });
+    });
+  }
+
   function initTTS() {
     const read = $('#btnTTSRead');
     const stop = $('#btnTTSStop');
@@ -982,6 +1057,13 @@
 
   function initAI() {
     chrome.runtime.onMessage.addListener(message => {
+      if (message && message.action === 'voiceProgress') {
+        const button = $('#btnDownloadVoice');
+        if (button) button.textContent = 'Downloading the natural voice… ' + message.percent + '%';
+        // Every tenth, so a screen reader is informed but not flooded.
+        if (message.percent % 20 === 0) announce(message.percent + ' per cent downloaded.');
+        return;
+      }
       if (!message || message.action !== 'aiProgress') return;
       const percent = message.total ? Math.round((message.done / message.total) * 100) : 0;
       $('#aiProgressFill').style.width = percent + '%';
@@ -1235,6 +1317,10 @@
     $('#btnHelp').addEventListener('click', () => {
       confirmDialog(
         'Keyboard shortcuts',
+        'Alt+Shift+1 to 7 turn on a profile without opening this panel: ' +
+        '1 low vision, 2 screen reader, 3 hand movement, 4 reading support, ' +
+        '5 focus, 6 seizure safety, 7 easier all round. ' +
+        'Alt+Shift+8 turns everything off and Alt+Shift+9 reads the list aloud. ' +
         'Alt+Shift+Q opens AccessiFlow. Alt+Shift+A turns it on and off. ' +
         'Alt+Shift+R reads the page aloud and Alt+Shift+S stops. ' +
         'Alt+Shift+C switches high contrast, and Alt+Shift+M switches the reading mask. ' +
@@ -1254,6 +1340,7 @@
     initSearch();
     initTurnOff();
     initTTS();
+    initVoiceDownload();
     initAI();
     initAudit();
     initDataActions();

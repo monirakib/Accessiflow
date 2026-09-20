@@ -146,6 +146,39 @@ const AI_OPERATIONS = {
   })
 };
 
+/**
+ * Fetches one image and returns it downscaled, as a data URL.
+ *
+ * Only the service worker can do this: it holds the host permissions, and its
+ * fetch is not bound by the page's cross-origin rules. Credentials are left
+ * out on purpose, so this can never pull in a signed-in user's private image.
+ */
+async function fetchImageAsDataUrl(url) {
+  if (!/^https?:\/\//i.test(url)) throw new ProxyError('That picture cannot be read.', 'bad_image');
+
+  const res = await fetch(url, { credentials: 'omit', cache: 'force-cache' });
+  if (!res.ok) throw new ProxyError('That picture could not be downloaded.', 'bad_image');
+
+  const blob = await res.blob();
+  if (!/^image\//.test(blob.type)) throw new ProxyError('That file is not a picture.', 'bad_image');
+  if (blob.size > 12000000) throw new ProxyError('That picture is too large.', 'image_too_large');
+
+  const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(1, CFG.IMAGE_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  const canvas = new OffscreenCanvas(
+    Math.max(1, Math.round(bitmap.width * scale)),
+    Math.max(1, Math.round(bitmap.height * scale))
+  );
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  const jpeg = await canvas.convertToBlob({ type: 'image/jpeg', quality: CFG.IMAGE_QUALITY });
+  const bytes = new Uint8Array(await jpeg.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return 'data:image/jpeg;base64,' + btoa(binary);
+}
+
 async function checkHealth() {
   if (!CFG.PROXY_ORIGIN || CFG.PROXY_ORIGIN.includes('example.workers.dev')) {
     return { available: false, reason: 'not_configured' };
@@ -163,6 +196,43 @@ async function checkHealth() {
   }
 }
 
+// ── Offline speech ────────────────────────────────────────────────────────
+// Windows has no Bangla voice unless somebody installs a language pack, so a
+// blind Bangla speaker gets silence from every browser on every computer
+// until they do. The extension carries its own engine for those languages.
+// It runs in an offscreen document because a content script cannot use
+// WebAssembly on sites with a strict policy, and audio started by a page
+// dies when the page navigates.
+
+let offscreenReady = null;
+
+async function ensureOffscreen() {
+  if (offscreenReady) return offscreenReady;
+
+  offscreenReady = (async () => {
+    const existing = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+    if (existing && existing.length) return true;
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Speaks text aloud in languages this computer has no voice for.'
+    });
+    return true;
+  })().catch(err => {
+    // A second call can lose the race to create it; that is not a failure.
+    if (/already/i.test(err.message)) return true;
+    offscreenReady = null;
+    throw err;
+  });
+
+  return offscreenReady;
+}
+
+async function relayToOffscreen(message) {
+  await ensureOffscreen();
+  return chrome.runtime.sendMessage(Object.assign({ target: 'offscreen' }, message));
+}
+
 // ── Message router ────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -175,6 +245,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(text => sendResponse({ success: true, text: text }))
       .catch(err => {
         warn(message.action + ' failed: ' + err.message);
+        sendResponse({ success: false, error: err.message, code: err.code || 'unknown' });
+      });
+    return true;
+  }
+
+  if (message.action === 'speakOffline' || message.action === 'stopOffline' ||
+      message.action === 'canSpeakOffline' || message.action === 'downloadVoice' ||
+      message.action === 'voiceStatus') {
+    // Never bounce a message that is already on its way to the offscreen
+    // document: that would be a loop.
+    if (message.target === 'offscreen') return;
+    relayToOffscreen(message)
+      .then(reply => sendResponse(reply || { success: true }))
+      .catch(err => {
+        warn(message.action + ' failed: ' + err.message);
+        sendResponse({ success: false, error: err.message });
+      });
+    return true;
+  }
+
+  if (message.action === 'aiFetchImage') {
+    fetchImageAsDataUrl(message.url)
+      .then(image => sendResponse({ success: true, image: image }))
+      .catch(err => {
+        warn('aiFetchImage failed: ' + err.message);
         sendResponse({ success: false, error: err.message, code: err.code || 'unknown' });
       });
     return true;

@@ -4,7 +4,7 @@
   "private": true,
   "description": "Renders the popup under jsdom and asserts its accessibility wiring.",
   "scripts": {
-    "test": "node popup.test.js && node modules.test.js"
+    "test": "node popup.test.js && node modules.test.js && node content.test.js"
   },
   "devDependencies": {
     "jsdom": "^26.0.0"

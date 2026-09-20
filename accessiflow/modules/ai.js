@@ -36,6 +36,16 @@ class AIModule {
     });
   }
 
+  /** A message whose whole reply we need, not just the model's text. */
+  _send(message) {
+    return new Promise(resolve => {
+      chrome.runtime.sendMessage(message, response => {
+        void chrome.runtime.lastError;   // an unreachable worker is just a null reply
+        resolve(response || null);
+      });
+    });
+  }
+
   /** Lets the popup stop a long run part-way through. */
   cancel() { this.cancelled = true; }
   _resetCancel() { this.cancelled = false; }
@@ -67,6 +77,27 @@ class AIModule {
     }
   }
 
+  /**
+   * The same picture, fetched by the extension when the page itself may not
+   * read it.
+   *
+   * A canvas is "tainted" for an image served by another origin without CORS
+   * headers, and the page can no longer export its pixels. That is most sites
+   * with a separate image host, so without this the feature would silently do
+   * nothing on a large share of the web. The service worker holds the host
+   * permissions, so it can fetch the file itself.
+   */
+  async _imageDataUrl(img) {
+    const direct = this._toDataUrl(img);
+    if (direct) return direct;
+
+    const src = img.currentSrc || img.src || '';
+    if (!/^https?:/i.test(src)) return null;
+
+    const response = await this._send({ action: 'aiFetchImage', url: src });
+    return (response && response.success && response.image) ? response.image : null;
+  }
+
   /** Nearby text helps the model tell a decorative photo from a chart. */
   _imageContext(img) {
     const figure = img.closest('figure');
@@ -81,7 +112,7 @@ class AIModule {
     if (!img || img.tagName !== 'IMG') return null;
     if (img.getAttribute('data-accessiflow-ai-alt') === 'true') return img.alt;
 
-    const dataUrl = this._toDataUrl(img);
+    const dataUrl = await this._imageDataUrl(img);
     if (!dataUrl) return null;
 
     const text = await this._ask('aiDescribeImage', {
@@ -95,6 +126,57 @@ class AIModule {
       this._log('Described: "' + text + '"');
     }
     return text;
+  }
+
+  /** The description the page itself gives, ignoring our own placeholder. */
+  pageAltFor(img) {
+    if (!img || img.tagName !== 'IMG') return '';
+    if (img.getAttribute('data-accessiflow-alt-repaired') === 'placeholder') return '';
+    if (img.getAttribute('data-accessiflow-ai-alt') === 'true') return '';
+    return (img.getAttribute('alt') || '').trim();
+  }
+
+  /**
+   * What to read out for one picture, for someone who cannot see it.
+   *
+   * The page's own alt text wins whenever it exists: it is instant, costs
+   * nothing, and was usually written by someone who knew what the picture was
+   * for. The AI is the fallback for the pictures that would otherwise be
+   * silent. `onWaiting` fires only when a request actually has to be made, so
+   * the caller can say "one moment" instead of leaving a blind user in
+   * silence for several seconds.
+   *
+   * @returns {{text: ?string, source: 'page'|'ai'|'none', error: ?string}}
+   */
+  async describeForSpeech(img, onWaiting) {
+    if (!img || img.tagName !== 'IMG') {
+      return { text: null, source: 'none', error: 'That is not a picture.' };
+    }
+
+    // Described by us on an earlier press: saying it again costs nothing.
+    if (img.getAttribute('data-accessiflow-ai-alt') === 'true') {
+      return { text: (img.getAttribute('alt') || '').trim() || null, source: 'ai', error: null };
+    }
+
+    const own = this.pageAltFor(img);
+    if (own) return { text: own, source: 'page', error: null };
+
+    if (this._isCaptcha(img)) {
+      return {
+        text: null, source: 'none',
+        error: 'This is a security check picture, which AccessiFlow does not describe.'
+      };
+    }
+
+    if (typeof onWaiting === 'function') onWaiting();
+
+    try {
+      const text = await this.describeImage(img);
+      if (text) return { text: text, source: 'ai', error: null };
+      return { text: null, source: 'none', error: 'This picture could not be read.' };
+    } catch (e) {
+      return { text: null, source: 'none', error: e.message || 'This picture could not be described.' };
+    }
   }
 
   /**

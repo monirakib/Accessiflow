@@ -405,14 +405,32 @@ function tidyAltText(text, max) {
 }
 
 function tidyText(text, max) {
-  return String(text)
+  const clean = String(text)
     .replace(/^```[a-z]*\s*/i, '')
     .replace(/\s*```$/, '')
     .replace(/^["'“‘]/, '')
     .replace(/["'”’]$/, '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, max);
+    .trim();
+
+  return clean.length <= max ? clean : trimToWord(clean, max);
+}
+
+/**
+ * Cuts to `max` on a word boundary rather than mid-word.
+ *
+ * These strings are spoken: AccessiFlow reads a description out loud when a
+ * blind user presses a picture. "…fees effective September 1," stops a voice
+ * in the middle of a thought, and a shorter whole phrase is worth more than a
+ * longer broken one. The dangling comma or dash goes too.
+ */
+function trimToWord(text, max) {
+  let out = text.slice(0, max);
+  const lastSpace = out.lastIndexOf(' ');
+  // Only back up to the last space when that still leaves most of the text;
+  // one very long word should not shrink the whole description to nothing.
+  if (lastSpace > max * 0.6) out = out.slice(0, lastSpace);
+  return out.replace(/[\s,;:–—-]+$/, '');
 }
 
 // ── HTTP helpers ────────────────────────────────────────────────────────

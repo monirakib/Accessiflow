@@ -3,10 +3,13 @@
   "name": "AccessiFlow: WCAG 2.2 Accessibility Suite",
   "version": "2.0.0",
   "description": "Make any website easier to see, read, hear and use. Built for people with disabilities, following WCAG 2.2 AA and AAA.",
-  "permissions": ["activeTab", "storage", "scripting"],
+  "permissions": ["activeTab", "storage", "scripting", "offscreen"],
   "host_permissions": [
     "<all_urls>",
-    "https://accessiflow-ai.accessiflow-ai.workers.dev/*"
+    "https://accessiflow-ai.accessiflow-ai.workers.dev/*",
+    "https://huggingface.co/*",
+    "https://cdn-lfs.huggingface.co/*",
+    "https://cdn-lfs-us-1.huggingface.co/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -27,6 +30,7 @@
       "matches": ["<all_urls>"],
       "js": [
         "modules/ai-config.js",
+        "modules/profiles.js",
         "modules/blind.js",
         "modules/vision.js",
         "modules/motor.js",
@@ -46,6 +50,11 @@
   ],
   "background": {
     "service_worker": "background.js"
+  },
+
+  "_comment_csp": "wasm-unsafe-eval is for the bundled eSpeak NG speech engine, which runs in offscreen.html. No remote code: the engine ships inside the extension.",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "commands": {
     "_execute_action": {

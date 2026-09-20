@@ -16,76 +16,11 @@
 'use strict';
 
 const SCHEMA = {
-  /** Preset bundles on the home panel. Keys must match control ids below. */
-  profiles: [
-    {
-      id: 'visual',
-      icon: 'eye',
-      label: 'Low vision',
-      desc: 'Bigger text, stronger colours, clearer links.',
-      settings: {
-        highContrast: true, textSize: 130, lineHeight: 1.7,
-        dyslexiaFont: true, highlightLinks: true, enhancedFocus: true
-      }
-    },
-    {
-      id: 'blind',
-      icon: 'sound',
-      label: 'Screen reader',
-      desc: 'Repairs labels and landmarks, reads selected text.',
-      settings: { blindMode: true, ttsReadOnSelect: true }
-    },
-    {
-      id: 'motor',
-      icon: 'hand',
-      label: 'Hand movement',
-      desc: 'Bigger buttons, larger pointer, steadier clicks.',
-      settings: {
-        largeCursor: true, cursorSize: 2.5, bigTargets: true,
-        enhancedFocus: true, stopAnimations: true, tremorFilter: true
-      }
-    },
-    {
-      id: 'cognitive',
-      icon: 'book',
-      label: 'Reading support',
-      desc: 'Simpler pages, wider spacing, a line to follow.',
-      settings: {
-        readingMask: true, lineHeight: 1.8, letterSpacing: 2,
-        simplifyPage: true, lineRuler: true, dyslexiaFont: true
-      }
-    },
-    {
-      id: 'adhd',
-      icon: 'focus',
-      label: 'Focus',
-      desc: 'Fewer distractions, break reminders, progress bar.',
-      settings: {
-        focusTimer: true, distractionFree: true, readingProgress: true,
-        reduceClutter: true, breakTimer: true
-      }
-    },
-    {
-      id: 'seizure',
-      icon: 'shield',
-      label: 'Seizure safety',
-      desc: 'Stops flashing, motion and autoplaying video.',
-      settings: {
-        flashDetection: true, reduceMotion: true, staticGifs: true,
-        disableAutoplay: true, stopAnimations: true
-      }
-    },
-    {
-      id: 'senior',
-      icon: 'person',
-      label: 'Easier all round',
-      desc: 'Larger everything, with clear focus and links.',
-      settings: {
-        textSize: 140, lineHeight: 2.0, largeCursor: true,
-        bigTargets: true, enhancedFocus: true, highlightLinks: true
-      }
-    }
-  ],
+  /**
+   * Preset bundles on the home panel, from modules/profiles.js so the page
+   * can apply the same bundles from a keyboard shortcut.
+   */
+  profiles: (typeof globalThis !== 'undefined' && globalThis.ACCESSIFLOW_PROFILES) || [],
 
   /**
    * Disability types the user can filter by. Each one names the setting
@@ -271,12 +206,18 @@ const SCHEMA = {
       controls: [
         { id: 'blindMode', type: 'switch', label: 'Screen reader repairs', desc: 'Quietly fix missing labels, landmarks and tab order.', wcag: '4.1.2', keywords: 'screen reader nvda jaws voiceover aria labels', defaultOn: true },
         { id: 'ttsReadOnSelect', type: 'switch', label: 'Read what I select', desc: 'Speak any text as soon as you highlight it.', wcag: '1.4.5', keywords: 'speak aloud selection highlight voice' },
+        { id: 'naturalBanglaVoice', type: 'switch', label: 'Natural Bangla voice', desc: 'A clearer, human-sounding Bangla voice instead of the robotic one. Needs a one-time 73 MB download.', wcag: '1.4.5', keywords: 'bangla bengali natural neural human clear quality robotic download voice' },
+        { id: 'speakImageDescriptions', type: 'switch', label: 'Describe pictures out loud', desc: 'Tab to a picture and press Enter, or press Alt+Shift+D, to hear what it shows.', wcag: '1.1.1', keywords: 'blind image picture photo describe alt text speak aloud ai what is this read image' },
+        { id: 'ttsVoice', type: 'select', label: 'Voice', desc: 'Which voice reads text aloud. Automatic picks one that matches the language on the page.', default: '', wcag: '1.4.5', keywords: 'voice speaker accent bangla bengali language which voice', voices: true, options: [
+          { value: '', label: 'Choose automatically' }
+        ] },
         { id: 'ttsRate', type: 'slider', label: 'Speaking speed', desc: 'How fast the voice talks.', min: 0.5, max: 2, step: 0.1, default: 1, suffix: '×', wcag: '1.4.5', keywords: 'speed rate fast slow voice' },
         { id: 'ttsPitch', type: 'slider', label: 'Voice pitch', desc: 'How high or low the voice sounds.', min: 0.5, max: 2, step: 0.1, default: 1, suffix: '', wcag: '1.4.5', keywords: 'pitch tone voice' }
       ],
       actions: [
         { id: 'btnTTSRead', label: 'Read this page aloud', style: 'primary' },
-        { id: 'btnTTSStop', label: 'Stop reading', style: 'secondary' }
+        { id: 'btnTTSStop', label: 'Stop reading', style: 'secondary' },
+        { id: 'btnDownloadVoice', label: 'Download the natural Bangla voice', style: 'secondary' }
       ]
     },
 
