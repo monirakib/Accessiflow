@@ -1,7 +1,0 @@
-# Never commit secrets. Set them with `wrangler secret put` instead.
-.dev.vars
-.dev.vars.*
-
-node_modules/
-.wrangler/
-*.log
