@@ -66,12 +66,81 @@ const $$ = s => Array.from(doc.querySelectorAll(s));
 check(uncaught.length === 0, 'no uncaught errors' + (uncaught.length ? ': ' + uncaught.join('; ') : ''));
 
 // ── Structure ───────────────────────────────────────────────────────────────
-const switches = $$('input[type="checkbox"][role="switch"]');
+// Switches written by hand in a panel (the Smart help consent switch) are not
+// schema controls, so they are counted apart rather than hidden from the test.
+const allSwitches = $$('input[type="checkbox"][role="switch"]');
+const panelSwitches = allSwitches.filter(n => n.closest('[data-panel-control]'));
+const switches = allSwitches.filter(n => !n.closest('[data-panel-control]'));
 const ranges = $$('input[type="range"]');
 const selects = $$('select');
-check(switches.length === 64, 'switches rendered: ' + switches.length);
-check(ranges.length === 14, 'sliders rendered (13 page + 1 panel scale): ' + ranges.length);
-check(selects.length === 6, 'selects rendered (5 page + 1 disability filter): ' + selects.length);
+// Counted from the schema rather than hardcoded. A fixed number here fails on
+// every new setting without telling anyone anything; what actually matters is
+// that each declared control rendered exactly once, as the right kind of input.
+const schema = window.ACCESSIFLOW_SCHEMA;
+const declared = { switch: [], slider: [], select: [] };
+schema.sections.forEach(section => {
+  section.controls.forEach(control => { declared[control.type].push(control.id); });
+});
+
+// The popup adds one slider (its own text scale) and one select (the disability
+// filter) that belong to the interface itself, not to any page setting.
+check(panelSwitches.length === 1 && panelSwitches[0].id === 'aiConsent',
+  'the only hand-written switch is the Smart help consent switch');
+check(panelSwitches.every(n => {
+  const desc = n.getAttribute('aria-describedby');
+  return desc && doc.getElementById(desc) && n.closest('label');
+}), 'and it is labelled and described the same way schema switches are');
+check(switches.length === declared.switch.length,
+  'every declared switch rendered: ' + switches.length + ' of ' + declared.switch.length);
+check(ranges.length === declared.slider.length + 1,
+  'every declared slider rendered, plus the panel scale: ' + ranges.length +
+  ' of ' + (declared.slider.length + 1));
+check(selects.length === declared.select.length + 1,
+  'every declared select rendered, plus the disability filter: ' + selects.length +
+  ' of ' + (declared.select.length + 1));
+
+{
+  // A profile that sets a key no control declares is a setting the user can
+  // never see, change or turn off again. Alt+Shift+3 would silently apply it
+  // and nothing in the panel would admit it was on.
+  const knownIds = new Set([].concat(declared.switch, declared.slider, declared.select));
+  const orphaned = [];
+  (window.ACCESSIFLOW_PROFILES || []).forEach(profile => {
+    Object.keys(profile.settings).forEach(key => {
+      if (!knownIds.has(key)) orphaned.push(profile.id + '.' + key);
+    });
+  });
+  check(orphaned.length === 0,
+    'every setting a profile applies is a control the user can also see' +
+    (orphaned.length ? ', orphaned: ' + orphaned.join(', ') : ''));
+
+  // Likewise a dependsOn or conflictsWith pointing at nothing: the row would
+  // be permanently dimmed, or permanently available when it should not be.
+  const dangling = [];
+  schema.sections.forEach(section => {
+    section.controls.forEach(control => {
+      if (control.dependsOn && !knownIds.has(control.dependsOn)) {
+        dangling.push(control.id + ' dependsOn ' + control.dependsOn);
+      }
+      (control.conflictsWith || []).forEach(other => {
+        if (!knownIds.has(other)) dangling.push(control.id + ' conflictsWith ' + other);
+      });
+    });
+  });
+  check(dangling.length === 0,
+    'every dependsOn and conflictsWith points at a control that exists' +
+    (dangling.length ? ': ' + dangling.join(', ') : ''));
+}
+
+{
+  // Naming each missing id beats reporting a count that is one short.
+  const rendered = new Set(switches.concat(ranges).concat(selects).map(n => n.id));
+  const missing = []
+    .concat(declared.switch, declared.slider, declared.select)
+    .filter(id => !rendered.has(id));
+  check(missing.length === 0,
+    'no declared control is missing from the DOM' + (missing.length ? ': ' + missing.join(', ') : ''));
+}
 {
   // Someone whose language has no voice installed can only find that out by
   // seeing the list, so the picker shows every voice with its language tag.
@@ -247,11 +316,17 @@ function searchPanels() {
     typeSearch('ai', () => {
       const rows = $$('#sections .row').filter(r => !r.hidden && !r.closest('.section').hidden);
       check(!aiPanel().hidden, '"ai" finds Smart help');
-      // Only the AI-powered setting should match, never a row that merely
-      // contains 'ai' inside explain, again or captions.
-      check(rows.map(r => r.dataset.controlId).join(',') === 'speakImageDescriptions',
-        '"ai" matches from word starts: ' +
-        (rows.map(r => r.dataset.controlId).join(', ') || 'no rows'));
+      // The property, not a snapshot of which rows happen to match today.
+      // "ai" must never match inside explain, again or captions, but it is
+      // correct for it to match the start of a word such as "aim".
+      const midWordOnly = rows.filter(r => !/\bai/.test(r.dataset.search));
+      check(midWordOnly.length === 0,
+        '"ai" never matches mid-word' +
+        (midWordOnly.length ? ', but did on: ' + midWordOnly.map(r => r.dataset.controlId).join(', ') : ''));
+      check(rows.some(r => r.dataset.controlId === 'speakImageDescriptions'),
+        '"ai" still finds the AI-powered setting');
+      check(!rows.some(r => r.dataset.controlId === 'dictionary'),
+        '"Explain hard words" is not dragged in by the "ai" inside "explain"');
 
       typeSearch('alt text', () => {
         check(!aiPanel().hidden, 'a keyword the panel never displays ("alt text") still finds it');

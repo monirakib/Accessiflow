@@ -13,6 +13,8 @@ const ok = [];
 function check(cond, msg) { (cond ? ok : errors).push(msg); }
 
 const dom = new JSDOM(`<!DOCTYPE html><html lang="en"><body><main>
+  <button id="save">Save changes</button>
+  <label for="email">Email address</label><input id="email" type="email">
   <img id="chart" src="/chart.jpg">
   <a href="/fees"><img id="linked" src="/linked.jpg"></a>
   <img id="decorative" src="/rule.png" alt="">
@@ -82,10 +84,40 @@ window.chrome = {
   }
 };
 
-for (const f of ['modules/ai-config.js', 'modules/profiles.js', 'modules/blind.js', 'modules/vision.js', 'modules/motor.js',
-                 'modules/cognitive.js', 'modules/hearing.js', 'modules/seizure.js', 'modules/speech.js',
-                 'modules/neuro.js', 'modules/bangla.js', 'modules/audit.js', 'modules/ai.js', 'content.js']) {
+// Taken from the manifest rather than listed here, so this test always loads
+// exactly what Chrome loads, in the same order. When the two were kept
+// separately, adding a module to the manifest left the test quietly exercising
+// a build that no longer existed: content.js would catch the missing class,
+// warn, and carry on, and the suite stayed green.
+const MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
+const CONTENT_SCRIPTS = MANIFEST.content_scripts[0].js;
+
+for (const f of CONTENT_SCRIPTS) {
   window.eval(fs.readFileSync(path.join(ROOT, f), 'utf8'));
+}
+
+// Every module named in the manifest has to have actually defined its class,
+// or content.js silently runs without it.
+{
+  const expected = {
+    'modules/blind.js': 'BlindModule', 'modules/vision.js': 'VisionModule',
+    'modules/contrast.js': 'ContrastModule', 'modules/motor.js': 'MotorModule',
+    'modules/focus-lock.js': 'FocusLockModule',
+    'modules/forms.js': 'FormsModule',
+    'modules/cognitive.js': 'CognitiveModule', 'modules/hearing.js': 'HearingModule',
+    'modules/seizure.js': 'SeizureModule', 'modules/speech.js': 'SpeechModule',
+    'modules/neuro.js': 'NeuroModule', 'modules/bangla.js': 'BanglaModule',
+    'modules/audit.js': 'AuditModule', 'modules/ai.js': 'AIModule',
+    'modules/overlay.js': 'AccessiFlowOverlay'
+  };
+  const undefinedClasses = CONTENT_SCRIPTS
+    .filter(f => expected[f] && typeof window[expected[f]] !== 'function')
+    .map(f => expected[f]);
+  check(undefinedClasses.length === 0,
+    'every module in the manifest defined its class' +
+    (undefinedClasses.length ? ', missing: ' + undefinedClasses.join(', ') : ''));
+  check(typeof window.ACCESSIFLOW_COLOR === 'object',
+    'the colour helpers loaded before the modules that depend on them');
 }
 
 const send = msg => new Promise(resolve => listeners[0](msg, {}, resolve));
@@ -190,6 +222,43 @@ const press = (key, opts) => doc.dispatchEvent(
   await send({ action: 'applySettings', data: { speakImageDescriptions: false } });
   check(marked().length === 0 && !byId('chart').hasAttribute('tabindex'),
     'turning it off removes every focus stop it added');
+
+  // ── Reading what you point at ────────────────────────────────────────────
+  // The screen-reader behaviour people asked for: point at a button and hear
+  // what it is. The dwell matters as much as the speech — without it, crossing
+  // the page on the way somewhere else fires an announcement per element.
+  await send({ action: 'applySettings', data: { ttsReadOnHover: true, ttsReadOnFocus: true, hoverReadDelay: 150 } });
+
+  spoken.length = 0;
+  const hover = el => el.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
+
+  hover(byId('save'));
+  check(spoken.length === 0, 'nothing is said while the pointer is still moving');
+
+  await settle();
+  check(spoken[0] && spoken[0].text === 'Save changes, button',
+    'resting on a button says what it is: ' + (spoken[0] && spoken[0].text));
+
+  // Pointing at the same thing again must not repeat it.
+  spoken.length = 0;
+  hover(byId('save'));
+  await settle();
+  check(spoken.length === 0, 'pointing at the same thing again stays quiet');
+
+  // The keyboard equivalent, which is what a blind user actually uses.
+  spoken.length = 0;
+  byId('email').focus();
+  await settle();
+  check(spoken.some(u => /Email address, edit, blank/.test(u.text)),
+    'tabbing to a box says its label and that it is empty: ' +
+    (spoken.map(u => u.text).join(' | ') || 'nothing'));
+
+  // Off means off: no listeners left behind.
+  await send({ action: 'applySettings', data: {} });
+  spoken.length = 0;
+  hover(byId('save'));
+  await settle();
+  check(spoken.length === 0, 'turning it off stops the announcements');
 
   // ── A computer with no Bangla voice ──────────────────────────────────────
   // Which is every stock Windows machine. Bangla must still be spoken, by

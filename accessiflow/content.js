@@ -16,6 +16,9 @@
   // ── Module Instances ──────────────────────────────────────
   let blindModule = null;
   let visionModule = null;
+  let contrastModule = null;
+  let focusLockModule = null;
+  let formsModule = null;
   let motorModule = null;
   let cognitiveModule = null;
   let hearingModule = null;
@@ -29,6 +32,8 @@
 
   try { blindModule = new BlindModule(); } catch (e) { _warn('BlindModule init failed: ' + e.message); }
   try { visionModule = new VisionModule(); } catch (e) { _warn('VisionModule init failed: ' + e.message); }
+  try { contrastModule = new ContrastModule(); } catch (e) { _warn('ContrastModule init failed: ' + e.message); }
+  try { focusLockModule = new FocusLockModule(); } catch (e) { _warn('FocusLockModule init failed: ' + e.message); }
   try { motorModule = new MotorModule(); } catch (e) { _warn('MotorModule init failed: ' + e.message); }
   try { cognitiveModule = new CognitiveModule(); } catch (e) { _warn('CognitiveModule init failed: ' + e.message); }
   try { hearingModule = new HearingModule(); } catch (e) { _warn('HearingModule init failed: ' + e.message); }
@@ -38,6 +43,7 @@
   try { banglaModule = new BanglaModule(); } catch (e) { _warn('BanglaModule init failed: ' + e.message); }
   try { auditModule = new AuditModule(); } catch (e) { _warn('AuditModule init failed: ' + e.message); }
   try { aiModule = new AIModule(); } catch (e) { _warn('AIModule init failed: ' + e.message); }
+  try { formsModule = new FormsModule(); } catch (e) { _warn('FormsModule init failed: ' + e.message); }
 
   // ── TTS Engine ────────────────────────────────────────────
 
@@ -315,9 +321,10 @@
     }
 
     readHovered(element) {
-      if (element && element.textContent) {
-        this.speak(element.textContent.trim().substring(0, 500), element);
-      }
+      const naming = window.AccessiFlowNaming;
+      const said = naming ? naming.describeElement(element)
+                          : (element && element.textContent || '').trim().slice(0, 300);
+      if (said) this.speak(said, element);
     }
 
     readPage() {
@@ -556,13 +563,23 @@
 
   // ── Current settings state ────────────────────────────────
   let currentSettings = {};
-  let blindMode = true; // Always on by default
+  let blindMode = true;   // on unless the user turns Screen reader repairs off
   let extensionEnabled = true;
 
   // ── Apply Settings ────────────────────────────────────────
   function applySettings(settings) {
     try {
       currentSettings = settings || {};
+
+      // The "Screen reader repairs" switch. This used to be hardcoded on, so
+      // the switch in the popup changed nothing. Turning it off now undoes the
+      // repairs, and with them the automatic AI names that build on them.
+      const wantBlind = currentSettings.blindMode !== false;
+      if (!wantBlind && blindMode) {
+        try { if (aiModule) aiModule.revertControls(); } catch (e) { /* ok */ }
+        try { if (blindModule) blindModule.destroy(); } catch (e) { /* ok */ }
+      }
+      blindMode = wantBlind;
       _log('Applying settings: ' + Object.keys(currentSettings).filter(k => currentSettings[k]).join(', '));
 
       // Build CSS from modules
@@ -584,6 +601,38 @@
           css += visionModule.buildCSS(settings);
           visionModule.apply(settings);
         } catch (e) { _warn('Vision apply error: ' + e.message); }
+      }
+
+      // Smart dark mode. Not destroyed first, unlike the others: it decides
+      // for itself whether anything it computed is now stale, because a full
+      // recompute on every slider tick would repaint the page needlessly.
+      if (contrastModule) {
+        try {
+          contrastModule.apply(settings);
+        } catch (e) { _warn('Contrast apply error: ' + e.message); }
+      }
+
+      // Keyboard focus lock. Like smart dark mode, it is not destroyed first:
+      // tearing it down mid-settings-change would drop the lock on a dialog
+      // the user is standing in and hand the keyboard back to the page behind.
+      if (focusLockModule) {
+        try {
+          focusLockModule.apply(settings);
+        } catch (e) { _warn('Focus lock apply error: ' + e.message); }
+      }
+
+      // Form briefs. Also not destroyed first: a brief the user is reading
+      // should not vanish because they nudged the text size.
+      if (formsModule) {
+        try {
+          formsModule.setSpeaker(message => {
+            // Only when AccessiFlow is the one doing the reading. A screen
+            // reader announces the brief itself, and two voices at once is worse
+            // than one.
+            if (currentSettings.ttsReadOnFocus && ttsEngine) ttsEngine.speak(message);
+          });
+          formsModule.apply(settings);
+        } catch (e) { _warn('Forms apply error: ' + e.message); }
       }
 
       // Motor
@@ -645,6 +694,7 @@
       if (blindMode && blindModule) {
         try {
           blindModule.runAll();
+          scheduleAutoHeal();
         } catch (e) { _warn('Blind apply error: ' + e.message); }
       }
 
@@ -652,6 +702,12 @@
       try {
         ImageSpeech.apply(!!settings.speakImageDescriptions);
       } catch (e) { _warn('Picture speech apply error: ' + e.message); }
+
+      // Read what the user points at, and what they tab to
+      try {
+        HoverReader.applyHover(!!settings.ttsReadOnHover);
+        HoverReader.applyFocus(!!settings.ttsReadOnFocus);
+      } catch (e) { _warn('Hover reading apply error: ' + e.message); }
 
       // TTS rate/pitch/voice
       if (ttsEngine) {
@@ -668,6 +724,28 @@
     } catch (e) {
       _warn('applySettings error: ' + e.message);
     }
+  }
+
+  // ── Automatic healing ─────────────────────────────────────
+  //
+  // Screen reader repairs names what it can for free. Whatever is left as a
+  // placeholder is offered to the AI, without a button press. The service
+  // worker decides whether that is allowed: it serves remembered names at no
+  // cost, and makes new calls only with the user's standing consent and within
+  // the hourly allowance. A refusal is silent, because nobody asked for this
+  // and nobody should be told off about it.
+  let autoHealTimer = null;
+  function scheduleAutoHeal() {
+    if (!aiModule || !blindMode) return;
+    if (currentSettings.aiAutoHeal === false) return;   // switched off for this site
+    // A throttle, not a debounce. Resetting the timer on every mutation would
+    // mean a page with a live clock or ticker is never healed at all.
+    if (autoHealTimer) return;
+    autoHealTimer = setTimeout(() => {
+      autoHealTimer = null;
+      if (!extensionEnabled || !aiModule.countControlsNeedingName()) return;
+      aiModule.healControls({ auto: true }).catch(() => { /* quiet by design */ });
+    }, 1200);
   }
 
   // ── Settings Persistence ──────────────────────────────────
@@ -692,7 +770,7 @@
         } else {
           // No saved settings, so just run the blind module
           if (blindMode && blindModule) {
-            try { blindModule.runAll(); } catch (e) { _warn('Blind auto-run error: ' + e.message); }
+            try { blindModule.runAll(); scheduleAutoHeal(); } catch (e) { _warn('Blind auto-run error: ' + e.message); }
           }
         }
       });
@@ -707,6 +785,18 @@
   // ── Reset / Destroy All ───────────────────────────────────
   function destroyAll() {
     try { if (visionModule) visionModule.destroy(); } catch (e) { /* ok */ }
+    try { if (contrastModule) contrastModule.destroy(); } catch (e) { /* ok */ }
+    try { if (focusLockModule) focusLockModule.destroy(); } catch (e) { /* ok */ }
+    try { if (formsModule) formsModule.destroy(); } catch (e) { /* ok */ }
+    // Everything off means the capture too: listening to a tab with nothing
+    // on screen to say so would be the opposite of what was asked.
+    try {
+      if (hearingModule && hearingModule._captureRunning) {
+        chrome.runtime.sendMessage({ action: 'stopCaptions' }, () => { void chrome.runtime.lastError; });
+      }
+      if (hearingModule) hearingModule.destroyCaptions();
+    } catch (e) { /* ok */ }
+    try { if (aiModule) { aiModule.revertSimplified(); aiModule.revertControls(); } } catch (e) { /* ok */ }
     try { if (motorModule) motorModule.destroy(); } catch (e) { /* ok */ }
     try { if (cognitiveModule) cognitiveModule.destroy(); } catch (e) { /* ok */ }
     try { if (hearingModule) hearingModule.destroy(); } catch (e) { /* ok */ }
@@ -716,6 +806,7 @@
     try { if (banglaModule) banglaModule.destroy(); } catch (e) { /* ok */ }
     try { if (blindModule) blindModule.destroy(); } catch (e) { /* ok */ }
     try { ImageSpeech.disable(); } catch (e) { /* ok */ }
+    try { HoverReader.applyHover(false); HoverReader.applyFocus(false); } catch (e) { /* ok */ }
     try { if (ttsEngine) ttsEngine.stop(); } catch (e) { /* ok */ }
     if (dynamicStyle) dynamicStyle.textContent = '';
     currentSettings = {};
@@ -809,11 +900,63 @@
             sendResponse({
               success: true,
               images: aiModule.countImagesNeedingAlt(),
-              links: aiModule.countVagueLinks()
+              links: aiModule.countVagueLinks(),
+              controls: aiModule.countControlsNeedingName(),
+              paragraphs: aiModule.countSimplifiable(),
+              simplified: aiModule.simplifiedCount
             });
           } else {
-            sendResponse({ success: false, images: 0, links: 0 });
+            sendResponse({ success: false, images: 0, links: 0, controls: 0, paragraphs: 0, simplified: 0 });
           }
+          break;
+
+        case 'aiHealControls':
+          if (aiModule) {
+            aiModule.healControls({
+              auto: false,
+              onProgress: (done, total) => chrome.runtime.sendMessage({
+                action: 'aiProgress', kind: 'controls', done: done, total: total
+              }, () => { void chrome.runtime.lastError; })
+            }).then(result => sendResponse({ success: true, result: result }));
+            return true;
+          }
+          sendResponse({ success: false, error: 'The AI helper is not loaded on this page.' });
+          break;
+
+        case 'aiSimplifyPage':
+          if (aiModule) {
+            aiModule.simplifyPage((done, total) => chrome.runtime.sendMessage({
+              action: 'aiProgress', kind: 'paragraphs', done: done, total: total
+            }, () => { void chrome.runtime.lastError; }))
+              .then(result => sendResponse({ success: true, result: result }))
+              .catch(err => sendResponse({ success: false, error: err.message }));
+            return true;
+          }
+          sendResponse({ success: false, error: 'The AI helper is not loaded on this page.' });
+          break;
+
+        case 'aiRevertSimplified':
+          sendResponse({ success: true, restored: aiModule ? aiModule.revertSimplified() : 0 });
+          break;
+
+        case 'aiBulletSummary':
+          if (aiModule) {
+            aiModule.summarizeBullets()
+              .then(bullets => sendResponse({ success: true, bullets: bullets }))
+              .catch(err => sendResponse({ success: false, error: err.message }));
+            return true;
+          }
+          sendResponse({ success: false, error: 'The AI helper is not loaded on this page.' });
+          break;
+
+        case 'aiFormBrief':
+          if (formsModule) {
+            formsModule.describeCurrent()
+              .then(text => sendResponse({ success: true, text: text }))
+              .catch(err => sendResponse({ success: false, error: err.message }));
+            return true;
+          }
+          sendResponse({ success: false, error: 'Form summaries are not loaded on this page.' });
           break;
 
         case 'ttsReadPage':
@@ -835,6 +978,18 @@
           sendResponse({ success: true, loaded: true });
           break;
 
+        // Live captions, cues and levels from the offscreen document, relayed
+        // by the service worker for this tab only.
+        case 'captionEvent':
+          if (hearingModule) hearingModule.onCaptionEvent(msg.event);
+          if (msg.event && msg.event.type === 'state') {
+            if (msg.event.state === 'running') announceToPage('Live captions on.');
+            else if (msg.event.state === 'stopped' && !msg.event.message) announceToPage('Live captions off.');
+            else if (msg.event.message) announceToPage(msg.event.message);
+          }
+          sendResponse({ success: true });
+          break;
+
         default:
           _warn('Unknown action: ' + msg.action);
           sendResponse({ success: false, error: 'Unknown action' });
@@ -852,8 +1007,12 @@
       mutation.addedNodes.forEach(node => {
         if (node.nodeType !== Node.ELEMENT_NODE) return;
         try {
-          // Always run blind repairs on new nodes
-          if (blindMode && blindModule) blindModule.repairNode(node);
+          // Always run blind repairs on new nodes, then offer what they could
+          // not name to the AI once the page has settled.
+          if (blindMode && blindModule) {
+            blindModule.repairNode(node);
+            scheduleAutoHeal();
+          }
 
           // Run hearing observer features if active
           if (currentSettings.captionImages && hearingModule) {
@@ -868,6 +1027,75 @@
     });
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // ── Reading whatever you point at or tab to ───────────────
+  //
+  // What a screen reader does, for people who do not have one running: point
+  // at a button and hear "Submit, button", tab to a box and hear "Email,
+  // edit, blank". It says the name, the kind of thing, and the state, rather
+  // than the text inside it, because pointing at a word inside a button
+  // means the button.
+  const HoverReader = {
+    hover: false,
+    focus: false,
+    _timer: null,
+    _last: null,
+
+    applyHover(on) {
+      if (on === this.hover) return;
+      this.hover = on;
+      if (on) {
+        document.addEventListener('mouseover', this._onOver, true);
+        document.addEventListener('mouseout', this._onOut, true);
+      } else {
+        document.removeEventListener('mouseover', this._onOver, true);
+        document.removeEventListener('mouseout', this._onOut, true);
+        this._cancel();
+      }
+    },
+
+    applyFocus(on) {
+      if (on === this.focus) return;
+      this.focus = on;
+      if (on) document.addEventListener('focusin', this._onFocus, true);
+      else document.removeEventListener('focusin', this._onFocus, true);
+    },
+
+    _cancel() {
+      clearTimeout(this._timer);
+      this._timer = null;
+      this._last = null;
+    },
+
+    /**
+     * Pointing waits a moment first. Without it, crossing the page on the way
+     * somewhere else fires a dozen announcements and talks over itself.
+     */
+    _onOver: e => {
+      const reader = HoverReader;
+      clearTimeout(reader._timer);
+      const delay = Number(currentSettings.hoverReadDelay) || 400;
+      reader._timer = setTimeout(() => reader._announce(e.target), delay);
+    },
+
+    _onOut: () => { clearTimeout(HoverReader._timer); },
+
+    // Focus is deliberate, so it is read at once.
+    _onFocus: e => { HoverReader._announce(e.target, true); },
+
+    _announce(node, immediate) {
+      if (!ttsEngine || !window.AccessiFlowNaming) return;
+
+      const target = window.AccessiFlowNaming.targetFor(node);
+      if (!target || target === this._last) return;       // already said
+      const said = window.AccessiFlowNaming.describeElement(target);
+      if (!said) return;
+
+      this._last = target;
+      void immediate;
+      ttsEngine.speak(said, target);
+    }
+  };
 
   // ── Profiles from the keyboard ────────────────────────────
   //
@@ -956,8 +1184,10 @@
         applySettings(currentSettings);
         handled = true;
         break;
-      case 'F': // Toggle focus ring
-        currentSettings.enhancedFocus = !currentSettings.enhancedFocus;
+      case 'F': // Toggle the focus halo. It supersedes the plain outline,
+        // which is inert while the halo is on, so toggling the outline here
+        // would do nothing visible for anyone using a profile.
+        currentSettings.focusHalo = !currentSettings.focusHalo;
         applySettings(currentSettings);
         handled = true;
         break;
@@ -971,11 +1201,82 @@
         applySettings(currentSettings);
         handled = true;
         break;
+      case 'V': // Dictate into the box I am in
+        if (speechModule && currentSettings.speechToText) {
+          speechModule.toggleDictation();
+        } else if (speechModule) {
+          // The shortcut is the discoverable part, so turn the feature on
+          // rather than answering a keypress with silence.
+          currentSettings.speechToText = true;
+          applySettings(currentSettings);
+          speechModule.toggleDictation();
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        return;   // the bar says what happened; no second announcement
+
       case 'D': // Describe the picture I am on, and read it out
         e.preventDefault();
         e.stopPropagation();
         ImageSpeech.describeCurrent();
         return;   // its own speech is the feedback; no shortcut announcement
+      case 'U': // Let me out: release a focus lock that guessed wrong
+        e.preventDefault();
+        e.stopPropagation();
+        if (focusLockModule && focusLockModule.isLocked) {
+          focusLockModule.release();
+          tellUser('Keyboard released. You can move around the page again.');
+        } else {
+          tellUser('The keyboard is not locked to anything.');
+        }
+        return;
+
+      case 'P': // Plain language: rewrite the dense paragraphs on this page
+        e.preventDefault();
+        e.stopPropagation();
+        if (!aiModule) return;
+        tellUser('Rewriting this page in plain language. One moment.');
+        aiModule.simplifyPage().then(result => {
+          if (result.error) tellUser(result.error);
+          else if (result.rewritten) {
+            tellUser(result.rewritten + ' paragraphs rewritten. Alt+Shift+O restores the original.');
+          } else tellUser('Nothing on this page needed rewriting.');
+        }).catch(err => tellUser(err.message));
+        return;
+
+      case 'B': // Brief: three bullet points
+        e.preventDefault();
+        e.stopPropagation();
+        if (!aiModule) return;
+        tellUser('Summarising this page. One moment.');
+        aiModule.summarizeBullets().then(bullets => {
+          if (bullets.length) tellUser('The key points. ' + bullets.join(' '));
+          else tellUser('This page could not be summarised.');
+        }).catch(err => tellUser(err.message));
+        return;
+
+      case 'O': // Original: undo the plain-language rewrite
+        e.preventDefault();
+        e.stopPropagation();
+        if (aiModule && aiModule.simplifiedCount) {
+          aiModule.revertSimplified();
+          tellUser('The original text is back.');
+        } else {
+          tellUser('Nothing on this page has been rewritten.');
+        }
+        return;
+
+      case 'G': // Guide me through this form: say what it will ask for
+        e.preventDefault();
+        e.stopPropagation();
+        if (!formsModule) return;
+        tellUser('Looking at this form. One moment.');
+        formsModule.describeCurrent().then(text => {
+          if (text) tellUser('Before you start. ' + text);
+          else tellUser('This form could not be summarised.');
+        }).catch(err => tellUser(err.message));
+        return;
+
       case 'N': // Next heading, handled by BlindModule
         break;
     }
@@ -1000,7 +1301,7 @@
       'R': 'Reading page aloud',
       'S': 'Speech stopped',
       'C': 'High contrast toggled',
-      'F': 'Focus ring toggled',
+      'F': 'Keyboard highlight toggled',
       'T': 'Large cursor toggled',
       'M': 'Reading mask toggled',
     };
@@ -1024,6 +1325,17 @@
 
   // ── Auto-load saved settings ──────────────────────────────
   loadSettings();
+
+  // Captions follow the tab, not the page: a capture started before this page
+  // loaded is still running, and its caption box belongs here too.
+  try {
+    chrome.runtime.sendMessage({ action: 'captionsStatus' }, status => {
+      void chrome.runtime.lastError;
+      if (status && status.running && hearingModule) {
+        hearingModule.onCaptionEvent({ type: 'state', state: 'running' });
+      }
+    });
+  } catch (e) { /* the service worker is waking up; the next event will show the box */ }
 
   _log('Content script ready.');
 })();

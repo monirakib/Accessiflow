@@ -16,6 +16,9 @@
       describeImage: '/v1/describe-image',
       summarize: '/v1/summarize',
       labelLink: '/v1/label-link',
+      labelControl: '/v1/label-control',
+      formBrief: '/v1/form-brief',
+      simplify: '/v1/simplify',
       health: '/v1/health'
     },
 
@@ -23,8 +26,31 @@
       token: 'accessiflow_ai_token',
       tokenExpiry: 'accessiflow_ai_token_expiry',
       installId: 'accessiflow_ai_install_id',
-      consent: 'accessiflow_ai_consent'
+      consent: 'accessiflow_ai_consent',
+      cache: 'accessiflow_ai_cache',
+      budget: 'accessiflow_ai_budget'
     },
+
+    // Remembered answers. A description or a control name is the same on the
+    // next visit, so paying for it again is waste, and waiting for it again
+    // is worse: a screen reader user hears the repaired page instantly.
+    CACHE_MAX_ENTRIES: 2000,
+    CACHE_TTL_DAYS: 30,
+
+    // Calls the extension may make on its own, without a button press, per
+    // hour. Kept below the proxy's 60 so that a busy afternoon of automatic
+    // healing never leaves a user unable to press "Describe this picture".
+    AUTO_BUDGET_PER_HOUR: 40,
+
+    // Automatic healing on one page load, at most. Beyond this the page is
+    // likely generated markup where AI names would be guesses anyway.
+    MAX_CONTROLS_PER_PAGE: 15,
+
+    FORM_MIN_FIELDS: 4,
+    SIMPLIFY_MAX_PARAGRAPHS: 20,
+    SIMPLIFY_BATCH_PARAGRAPHS: 4,
+    SIMPLIFY_BATCH_CHARS: 2800,
+    SIMPLIFY_MIN_CHARS: 200,
 
     // Downscale images before upload: smaller payload, faster, cheaper, and
     // plenty of detail for a 125-character description.

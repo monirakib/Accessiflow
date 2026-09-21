@@ -1,14 +1,16 @@
 # Third-party code and voices
 
-AccessiFlow bundles three outside pieces so that it can speak Bangla on a
-computer that has no Bangla voice of its own. Each is listed here with what it
-is, where it came from, and what its licence requires.
+AccessiFlow bundles outside pieces so that it can speak Bangla on a computer
+that has no Bangla voice of its own, and caption a tab's sound without sending
+it anywhere. Each is listed here with what it is, where it came from, and what
+its licence requires.
 
 | Directory | What | Licence |
 | --- | --- | --- |
 | `espeak/` | eSpeak NG, the always-available voice and the phonemiser | **GPL-3.0-or-later** |
 | `onnx/` | ONNX Runtime Web, which runs the neural voice | MIT |
 | `piper/` | Configuration for Piper's Bangla voice (the model is downloaded, not bundled) | MIT (code) |
+| `transformers/` | Transformers.js and its ONNX Runtime WebAssembly build, which run Whisper for live captions (the model is downloaded, not bundled) | Apache-2.0, MIT |
 
 ## espeak/
 
@@ -46,8 +48,34 @@ Attribution for those belongs in anything published about AccessiFlow's Bangla
 speech, and the ShareAlike term applies to the voice, not to code that merely
 plays it.
 
+## transformers/
+
+[Transformers.js](https://github.com/huggingface/transformers.js) 4.3.0,
+Apache-2.0, from the `@huggingface/transformers` npm package: only its browser
+build, `transformers.min.js` (580 KB). Its licence is
+[LICENSE-transformers-Apache-2.0](transformers/LICENSE-transformers-Apache-2.0).
+
+Transformers.js carries its own copy of ONNX Runtime Web, a different version
+from the one in `onnx/`, so the two are not shared. Its WebAssembly build is
+taken from the matching `onnxruntime-web` package
+(1.31.0-dev.20260914-8d85527a0), MIT licensed
+([LICENSE-onnxruntime-MIT](transformers/LICENSE-onnxruntime-MIT)): the
+single-threaded-capable SIMD build `ort-wasm-simd-threaded.asyncify.wasm`
+(27 MB) and its loader `.mjs`. By default Transformers.js fetches these from a
+CDN at runtime; Manifest V3 forbids running code from anywhere but the
+extension, so they are bundled and `caption-engine.js` points the runtime at
+them.
+
+The model, [onnx-community/whisper-tiny.en](https://huggingface.co/onnx-community/whisper-tiny.en)
+with 8-bit weights (41 MB), is **downloaded when the user asks for it** and
+kept in the browser's cache, like the Bangla voice. It is a conversion of
+OpenAI's Whisper tiny.en, which OpenAI released under the MIT licence. It is
+English only.
+
 ## What is not here
 
-No model weights are committed to this repository. The neural voice is fetched
-at runtime, which keeps the extension at about 14 MB instead of 90 MB, and
-means a user who never turns that voice on never downloads it.
+No model weights are committed to this repository. The neural voice and the
+caption model are fetched at runtime, which keeps the extension at about 42 MB
+instead of about 155 MB, and means a user who never turns either on never
+downloads it. Most of the 42 MB is the two WebAssembly runtimes: 10 MB for the
+voice, 27 MB for captions.

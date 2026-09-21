@@ -121,7 +121,7 @@
           <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-spark"/></svg>
           <span class="section-title">
             <span class="section-label">Smart help</span>
-            <span class="section-desc">Describes pictures and explains pages for you.</span>
+            <span class="section-desc">Describes pictures, names buttons, and makes pages easier to read.</span>
           </span>
           <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
         </button>
@@ -139,6 +139,23 @@
             Fix confusing links
             <span class="btn-sub" id="aiLinkCount"></span>
           </button>
+          <button type="button" class="btn btn-primary btn-full" id="btnAiControls">
+            Name the unlabelled buttons
+            <span class="btn-sub" id="aiControlCount"></span>
+          </button>
+          <button type="button" class="btn btn-primary btn-full" id="btnAiSimplify">
+            Rewrite in plain language
+            <span class="btn-sub" id="aiParagraphCount"></span>
+          </button>
+          <button type="button" class="btn btn-quiet btn-full" id="btnAiRestore" hidden>
+            Restore the original text
+          </button>
+          <button type="button" class="btn btn-primary btn-full" id="btnAiBullets">
+            Give me the three key points
+          </button>
+          <button type="button" class="btn btn-primary btn-full" id="btnAiForm">
+            What will this form ask for?
+          </button>
           <button type="button" class="btn btn-quiet btn-full" id="btnAiCancel" hidden>Stop</button>
         </div>
 
@@ -147,6 +164,25 @@
         </div>
 
         <p id="aiStatus" class="status-text" role="status" aria-live="polite"></p>
+
+        <!-- Automatic fixes. One global agreement, asked for once: after it,
+             unlabelled buttons are named on every site without a press. -->
+        <div class="row ai-auto" data-panel-control="true">
+          <label class="row-main" for="aiConsent">
+            <span class="row-label">Fix unlabelled buttons automatically</span>
+            <input class="switch" type="checkbox" role="switch" id="aiConsent" aria-describedby="aiConsentDesc">
+          </label>
+          <p class="row-desc" id="aiConsentDesc">
+            On every site, name the buttons your screen reader would otherwise call
+            just &ldquo;button&rdquo;. The button&rsquo;s class names and nearby text
+            are sent to the helper service, never anything you type. Also lets form
+            summaries appear by themselves.
+          </p>
+          <p class="row-desc" id="aiAutoStatus" aria-live="polite"></p>
+          <button type="button" class="btn btn-quiet btn-full" id="btnAiForget">
+            Forget the remembered answers
+          </button>
+        </div>
 
         <p class="panel-note">
           Nothing to set up and nothing to pay for. AccessiFlow does the
@@ -157,10 +193,20 @@
           <summary>What happens to my page?</summary>
           <p>
             When you press one of these buttons, AccessiFlow sends that picture
-            or that page text to its helper service, which writes the
-            description and sends it back. Nothing is sent until you press a
-            button, nothing is kept afterwards, and the rest of AccessiFlow
-            works entirely on your own computer.
+            or that page text to its helper service, which writes the answer and
+            sends it back. The service keeps nothing.
+          </p>
+          <p>
+            AccessiFlow remembers each answer on your own computer for 30 days,
+            so a page you come back to is fixed instantly and nothing is sent
+            twice. &ldquo;Forget the remembered answers&rdquo; clears them.
+          </p>
+          <p>
+            Nothing is sent without a button press unless you turn on
+            &ldquo;Fix unlabelled buttons automatically&rdquo;. Even then,
+            AccessiFlow makes at most 40 automatic requests an hour, and never
+            sends anything you have typed into a form. Rewritten text is always
+            marked as rewritten, with the original one press away.
           </p>
         </details>
       </div>

@@ -33,16 +33,13 @@ class NeuroModule {
   buildCSS(s) {
     let css = '';
     try {
-      // Custom color theme
-      if (s.neuroColorTheme && s.neuroColorTheme !== 'none') {
-        const themes = {
-          calm: 'html { filter: saturate(0.6) brightness(1.05) !important; } body { background-color: #f5f0e8 !important; }',
-          warm: 'html { filter: sepia(0.2) brightness(1.02) !important; }',
-          cool: 'html { filter: hue-rotate(10deg) saturate(0.8) brightness(1.02) !important; }',
-          muted: 'html { filter: saturate(0.4) brightness(0.95) !important; }',
-          pastel: 'html { filter: saturate(0.5) brightness(1.1) contrast(0.9) !important; }'
-        };
-        if (themes[s.neuroColorTheme]) css += themes[s.neuroColorTheme] + '\n';
+      // Colour mood. The filter half of each theme lives in
+      // VisionModule.filterChain(), which composes every page-wide filter into
+      // one declaration; emitting our own `html { filter: ... }` here used to
+      // cancel whatever the Seeing panel had set, and be cancelled by it in
+      // turn, depending only on which module happened to write last.
+      if (s.neuroColorTheme === 'calm' && !s.smartDarkMode) {
+        css += 'body { background-color: #f5f0e8 !important; }\n';
       }
 
       // Reduce visual clutter

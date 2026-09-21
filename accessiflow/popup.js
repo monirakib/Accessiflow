@@ -222,6 +222,15 @@
 
     row.append(main, desc);
 
+    // Filled in by refreshDependants when another setting overrides this one.
+    // It lives inside the description so a screen reader picks it up as part
+    // of the switch's own explanation rather than as loose text after it.
+    if (control.conflictsWith) {
+      const conflict = el('span', 'row-conflict');
+      conflict.hidden = true;
+      desc.appendChild(conflict);
+    }
+
     input.addEventListener('change', () => {
       settings[control.id] = input.checked;
       clearProfileSelection();
@@ -407,6 +416,7 @@
       // The group name counts too, so "Hearing" or "বাংলা" lists that whole group.
       row.dataset.search = searchTerms(control) + searchText(section.label);
       if (control.dependsOn) row.dataset.dependsOn = control.dependsOn;
+      if (control.conflictsWith) row.dataset.conflictsWith = control.conflictsWith.join(' ');
       body.appendChild(row);
     });
 
@@ -476,6 +486,24 @@
   // relationship stays visible and nothing vanishes under a screen reader.
 
   function refreshDependants() {
+    // A setting that another setting overrides is shown as unavailable rather
+    // than hidden: someone who turned on "Dark background" and then switched
+    // on smart dark mode needs to see why their first choice stopped mattering.
+    document.querySelectorAll('[data-conflicts-with]').forEach(row => {
+      const blockers = row.dataset.conflictsWith.split(' ').filter(id => settings[id]);
+      const blocked = blockers.length > 0;
+      row.classList.toggle('row--inactive', blocked);
+      row.querySelectorAll('input, select, button').forEach(node => { node.disabled = blocked; });
+      const hint = row.querySelector('.row-conflict');
+      if (hint) {
+        hint.hidden = !blocked;
+        if (blocked) {
+          const label = CONTROLS.has(blockers[0]) ? CONTROLS.get(blockers[0]).label : blockers[0];
+          hint.textContent = 'Not used while ' + label + ' is on.';
+        }
+      }
+    });
+
     document.querySelectorAll('[data-depends-on]').forEach(row => {
       const active = Boolean(settings[row.dataset.dependsOn]);
       row.classList.toggle('row--inactive', !active);
@@ -1005,6 +1033,103 @@
     });
   }
 
+  // ── Live captions ───────────────────────────────────────────────────────
+  //
+  // Chrome allows a tab to be captured only right after the user invokes the
+  // extension on it, which opening this popup does. So the start button lives
+  // here, and on the page there is only the Alt+Shift+W shortcut, which
+  // carries the same permission.
+
+  let captionModelReady = false;
+
+  function refreshCaptions() {
+    const start = $('#btnCaptionsStart');
+    const stop = $('#btnCaptionsStop');
+    if (!start || !stop || !currentTabId) return;
+    chrome.runtime.sendMessage({ action: 'captionsStatus', tabId: currentTabId }, status => {
+      void chrome.runtime.lastError;
+      const running = !!(status && status.running);
+      start.hidden = running;
+      stop.hidden = !running;
+    });
+  }
+
+  function initCaptions() {
+    const start = $('#btnCaptionsStart');
+    const stop = $('#btnCaptionsStop');
+    const model = $('#btnCaptionModel');
+    if (!start || !stop || !model) return;
+    stop.hidden = true;
+
+    const modelReady = () => {
+      captionModelReady = true;
+      model.textContent = 'Caption engine is ready, on this computer';
+      model.disabled = true;
+    };
+
+    chrome.runtime.sendMessage({ action: 'captionModelStatus' }, reply => {
+      void chrome.runtime.lastError;
+      if (reply && reply.downloaded) modelReady();
+    });
+
+    chrome.runtime.onMessage.addListener(message => {
+      if (!message || message.action !== 'captionProgress') return;
+      model.textContent = 'Downloading the caption engine\u2026 ' + message.percent + '%';
+      if (message.percent % 20 === 0) announce(message.percent + ' per cent downloaded.');
+    });
+
+    model.addEventListener('click', () => {
+      model.disabled = true;
+      model.textContent = 'Downloading the caption engine\u2026';
+      announce('Downloading the caption engine. This happens once, and is about 41 megabytes. ' +
+        'After that, captions work without sending any sound anywhere.');
+      chrome.runtime.sendMessage({ action: 'downloadCaptionModel' }, reply => {
+        void chrome.runtime.lastError;
+        if (reply && reply.success) {
+          modelReady();
+          announce('The caption engine is ready. Start live captions whenever you like.');
+        } else {
+          model.disabled = false;
+          model.textContent = 'Download the caption engine (41 MB, once)';
+          announce((reply && reply.error) || 'The caption engine could not be downloaded.');
+        }
+      });
+    });
+
+    start.addEventListener('click', () => {
+      if (!currentTabId) return;
+      if (!captionModelReady) {
+        announce('Download the caption engine first. It is 41 megabytes, and only needed once.');
+        model.focus();
+        return;
+      }
+      start.disabled = true;
+      chrome.runtime.sendMessage({ action: 'startCaptions', tabId: currentTabId }, reply => {
+        void chrome.runtime.lastError;
+        start.disabled = false;
+        if (reply && reply.success) {
+          start.hidden = true;
+          stop.hidden = false;
+          announce('Starting live captions. The first caption can take about ten seconds. ' +
+            'They appear at the bottom of the page, and Alt+Shift+W stops them.');
+        } else {
+          announce((reply && reply.error) || 'Live captions could not start.');
+          if (reply && reply.code === 'model_missing') model.focus();
+        }
+      });
+    });
+
+    stop.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'stopCaptions' }, () => {
+        void chrome.runtime.lastError;
+        stop.hidden = true;
+        start.hidden = false;
+        announce('Live captions stopped.');
+        start.focus();
+      });
+    });
+  }
+
   function initTTS() {
     const read = $('#btnTTSRead');
     const stop = $('#btnTTSStop');
@@ -1027,10 +1152,12 @@
     else delete status.dataset.tone;
   }
 
+  const AI_BUTTONS = ['#btnAiAltText', '#btnAiSummary', '#btnAiLinks', '#btnAiControls',
+    '#btnAiSimplify', '#btnAiBullets', '#btnAiForm'];
+
   function setAiBusy(busy) {
-    ['#btnAiAltText', '#btnAiSummary', '#btnAiLinks'].forEach(sel => {
-      $(sel).disabled = busy;
-    });
+    AI_BUTTONS.forEach(sel => { $(sel).disabled = busy; });
+    $('#btnAiRestore').disabled = busy;
     $('#btnAiCancel').hidden = !busy;
     $('#aiProgress').hidden = !busy;
     if (!busy) $('#aiProgressFill').style.width = '0';
@@ -1048,9 +1175,12 @@
       const links = $('#aiLinkCount');
       images.textContent = response.images > 0 ? String(response.images) : '';
       links.textContent = response.links > 0 ? String(response.links) : '';
+      $('#aiControlCount').textContent = response.controls > 0 ? String(response.controls) : '';
+      $('#aiParagraphCount').textContent = response.paragraphs > 0 ? String(response.paragraphs) : '';
+      $('#btnAiRestore').hidden = !(response.simplified > 0);
 
-      if (response.images === 0 && response.links === 0) {
-        setAiStatus('This page already describes its pictures and names its links well.');
+      if (response.images === 0 && response.links === 0 && !response.controls) {
+        setAiStatus('This page already describes its pictures and names its links and buttons well.');
       }
     });
   }
@@ -1067,9 +1197,13 @@
       if (!message || message.action !== 'aiProgress') return;
       const percent = message.total ? Math.round((message.done / message.total) * 100) : 0;
       $('#aiProgressFill').style.width = percent + '%';
-      setAiStatus(message.kind === 'images'
-        ? 'Describing picture ' + message.done + ' of ' + message.total + '…'
-        : 'Rewriting link ' + message.done + ' of ' + message.total + '…');
+      const what = {
+        images: 'Describing picture',
+        links: 'Rewriting link',
+        controls: 'Naming button',
+        paragraphs: 'Rewriting paragraph'
+      }[message.kind] || 'Working on';
+      setAiStatus(what + ' ' + message.done + ' of ' + message.total + '…');
     });
 
     $('#btnAiCancel').addEventListener('click', () => {
@@ -1143,6 +1277,101 @@
       });
     });
 
+    // A shared finish for the simpler actions: busy off, say what happened.
+    const finishAi = (response, describe) => {
+      setAiBusy(false);
+      if (!response || !response.success) {
+        setAiStatus((response && response.error) || 'That did not work. Please try again.', 'error');
+      } else {
+        const outcome = describe(response);
+        setAiStatus(outcome.text, outcome.tone || 'success');
+      }
+      announce($('#aiStatus').textContent);
+      refreshAiCounts();
+      refreshAutoStatus();
+    };
+
+    $('#btnAiControls').addEventListener('click', () => {
+      setAiBusy(true);
+      setAiStatus('Looking for buttons with no name…');
+      sendAction('aiHealControls', response => finishAi(response, r => {
+        const result = r.result;
+        if (result.error) return { text: result.error, tone: 'error' };
+        if (result.total === 0) return { text: 'Every button on this page already has a name.' };
+        return {
+          text: 'Named ' + result.named + ' of ' + result.total + ' buttons.' +
+            (result.remembered ? ' ' + result.remembered + ' were already remembered.' : '') +
+            (result.named < result.total ? ' The rest could not be named with confidence.' : '')
+        };
+      }));
+    });
+
+    $('#btnAiSimplify').addEventListener('click', () => {
+      setAiBusy(true);
+      setAiStatus('Reading the long paragraphs…');
+      sendAction('aiSimplifyPage', response => finishAi(response, r => {
+        const result = r.result;
+        if (result.error && !result.rewritten) return { text: result.error, tone: 'error' };
+        return {
+          text: 'Rewrote ' + result.rewritten + ' of ' + result.total + ' paragraphs. ' +
+            'Each one has a button to show the original.' +
+            (result.error ? ' Then stopped: ' + result.error : '')
+        };
+      }));
+    });
+
+    $('#btnAiRestore').addEventListener('click', () => {
+      sendAction('aiRevertSimplified', response => finishAi(response, r => ({
+        text: 'Restored ' + r.restored + ' paragraphs to the original.'
+      })));
+    });
+
+    $('#btnAiBullets').addEventListener('click', () => {
+      setAiBusy(true);
+      setAiStatus('Reading the page…');
+      sendAction('aiBulletSummary', response => finishAi(response, r => ({
+        text: 'Key points added to the top of the page. ' + (r.bullets || []).join(' ')
+      })));
+    });
+
+    $('#btnAiForm').addEventListener('click', () => {
+      setAiBusy(true);
+      setAiStatus('Looking at the form…');
+      sendAction('aiFormBrief', response => finishAi(response, r => (r.text
+        ? { text: 'Added above the form: ' + r.text }
+        : { text: 'This form could not be summarised.', tone: 'error' })));
+    });
+
+    // Automatic fixes: the one-time agreement, and what it has done so far.
+    const consent = $('#aiConsent');
+    function refreshAutoStatus() {
+      chrome.runtime.sendMessage({ action: 'aiAutoStatus' }, status => {
+        if (chrome.runtime.lastError || !status || !status.success) return;
+        consent.checked = status.consent;
+        const remembered = status.cached === 1 ? '1 answer remembered' : status.cached + ' answers remembered';
+        $('#aiAutoStatus').textContent = status.consent
+          ? remembered + ', ' + status.remaining + ' of ' + status.perHour + ' automatic fixes left this hour.'
+          : remembered + '.';
+      });
+    }
+    consent.addEventListener('change', () => {
+      chrome.runtime.sendMessage({ action: 'aiSetConsent', value: consent.checked }, () => {
+        void chrome.runtime.lastError;
+        announce(consent.checked
+          ? 'Automatic fixes on. Unlabelled buttons will be named on every site.'
+          : 'Automatic fixes off. Nothing will be sent without a button press.');
+        refreshAutoStatus();
+      });
+    });
+    $('#btnAiForget').addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'aiClearCache' }, () => {
+        void chrome.runtime.lastError;
+        announce('Remembered answers forgotten.');
+        refreshAutoStatus();
+      });
+    });
+    refreshAutoStatus();
+
     // If the proxy is not reachable, say so before the user presses anything.
     chrome.runtime.sendMessage({ action: 'aiHealth' }, health => {
       if (chrome.runtime.lastError || !health) return;
@@ -1152,9 +1381,7 @@
         return;
       }
 
-      ['#btnAiAltText', '#btnAiSummary', '#btnAiLinks'].forEach(sel => {
-        $(sel).disabled = true;
-      });
+      AI_BUTTONS.forEach(sel => { $(sel).disabled = true; });
       setAiStatus(health.reason === 'offline'
         ? 'Smart help needs an internet connection.'
         : 'Smart help is not available in this build yet.', 'error');
@@ -1341,6 +1568,7 @@
     initTurnOff();
     initTTS();
     initVoiceDownload();
+    initCaptions();
     initAI();
     initAudit();
     initDataActions();
@@ -1375,6 +1603,7 @@
       });
 
       refreshAiCounts(); // no-op unless the health check already came back
+      refreshCaptions();
 
     });
   }

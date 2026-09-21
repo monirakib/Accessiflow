@@ -61,19 +61,19 @@ class VisionModule {
       }
       // 4. High contrast
       if (s.highContrast) {
-        css += 'html { filter: contrast(1.4) brightness(1.1) !important; }\n';
+        // The filter itself goes into the shared chain below, so it composes
+        // with dark mode and the colour-blindness filters instead of being
+        // silently overwritten by whichever rule happens to come last.
         css += 'body { background: #fff !important; color: #000 !important; }\n';
         css += 'a, a:visited { color: #0000EE !important; }\n';
       }
       // 5. Dark mode
-      if (s.darkMode) {
-        css += 'html { filter: invert(0.9) hue-rotate(180deg) !important; }\n';
+      if (s.darkMode && !s.smartDarkMode) {
         css += 'html img, html video, html canvas, html [style*="background-image"] { filter: invert(1) hue-rotate(180deg) !important; }\n';
         css += 'html svg[aria-hidden="true"] { filter: none !important; }\n';
       }
       // 6. Invert colors
-      if (s.invertColors) {
-        css += 'html { filter: invert(1) !important; }\n';
+      if (s.invertColors && !s.smartDarkMode) {
         css += 'html img, html video, html canvas { filter: invert(1) !important; }\n';
       }
       // 7. Dyslexia font
@@ -90,9 +90,8 @@ class VisionModule {
         css += 'img { visibility: hidden !important; }\n';
       }
       // 10. Color filter
-      if (s.colorFilter && s.colorFilter !== 'none') {
-        css += 'html { filter: url(#accessiflow-filter-' + s.colorFilter + ') !important; }\n';
-      }
+      // The colour-blindness filter joins the shared chain; applyColorFilter()
+      // still injects the SVG colour matrix that the url() points at.
       // 11. Font family
       if (s.fontFamily && s.fontFamily !== 'default') {
         const f = s.fontFamily === 'OpenDyslexic' ? "'OpenDyslexic', sans-serif" : "'" + s.fontFamily + "', sans-serif";
@@ -119,9 +118,7 @@ class VisionModule {
         css += 'svg, img[src$=".svg"], .icon, [class*="icon"], [class*="Icon"] { transform: scale(' + s.iconScaling + ') !important; transform-origin: center !important; }\n';
       }
       // 17. Saturation control
-      if (s.saturation !== undefined && s.saturation !== 100) {
-        css += 'html { filter: saturate(' + (s.saturation / 100) + ') !important; }\n';
-      }
+
       // 18. Text alignment
       if (s.textAlign && s.textAlign !== 'default') {
         css += 'p, li, td, th, div, span, h1, h2, h3, h4, h5, h6 { text-align: ' + s.textAlign + ' !important; }\n';
@@ -130,8 +127,64 @@ class VisionModule {
       if (s.wordSpacing && s.wordSpacing > 0) {
         css += '* { word-spacing: ' + s.wordSpacing + 'px !important; }\n';
       }
+      // One filter rule, assembled from every setting that asked for one.
+      const chain = VisionModule.filterChain(s);
+      if (chain.length) css += 'html { filter: ' + chain.join(' ') + ' !important; }\n';
     } catch (e) { this._warn('buildCSS: ' + e.message); }
     return css;
+  }
+
+  /**
+   * Every page-wide filter the settings ask for, as one ordered list.
+   *
+   * These used to be six separate `html { filter: ... }` rules concatenated
+   * into a single stylesheet, which meant the last one silently won and the
+   * rest did nothing: turning on a colour-blindness filter quietly cancelled
+   * dark mode, and the colour-strength slider cancelled both. CSS filters
+   * compose only when they share one declaration, so that is where they belong.
+   *
+   * Static, so NeuroModule can hand over its colour themes without either
+   * module reaching into the other.
+   */
+  static filterChain(s) {
+    const chain = [];
+    if (!s) return chain;
+
+    // Smart dark mode recolours the DOM element by element and has already
+    // proved each contrast ratio. Filtering the result would invalidate every
+    // one of those calculations, so nothing else is allowed on top of it.
+    if (s.smartDarkMode) {
+      if (s.colorFilter && s.colorFilter !== 'none') {
+        chain.push('url(#accessiflow-filter-' + s.colorFilter + ')');
+      }
+      return chain;
+    }
+
+    if (s.highContrast) chain.push('contrast(1.4)', 'brightness(1.1)');
+    if (s.darkMode) chain.push('invert(0.9)', 'hue-rotate(180deg)');
+    if (s.invertColors) chain.push('invert(1)');
+
+    const themes = {
+      calm: ['saturate(0.6)', 'brightness(1.05)'],
+      warm: ['sepia(0.2)', 'brightness(1.02)'],
+      cool: ['hue-rotate(10deg)', 'saturate(0.8)', 'brightness(1.02)'],
+      muted: ['saturate(0.4)', 'brightness(0.95)'],
+      pastel: ['saturate(0.5)', 'brightness(1.1)', 'contrast(0.9)']
+    };
+    if (s.neuroColorTheme && themes[s.neuroColorTheme]) {
+      Array.prototype.push.apply(chain, themes[s.neuroColorTheme]);
+    }
+
+    if (s.saturation !== undefined && s.saturation !== 100) {
+      chain.push('saturate(' + (s.saturation / 100) + ')');
+    }
+
+    // A url() filter is a full colour-matrix remap. It goes last so it sees
+    // the result of everything else rather than the untouched page.
+    if (s.colorFilter && s.colorFilter !== 'none') {
+      chain.push('url(#accessiflow-filter-' + s.colorFilter + ')');
+    }
+    return chain;
   }
 
   // ── 9. Hide images (DOM manipulation) ─────────────────────
@@ -410,7 +463,10 @@ class VisionModule {
       const css = this.buildCSS(settings);
       this._updateCSS(css);
       this.applyColorFilter(settings.colorFilter);
-      this.applyReadingGuide(!!settings.readingGuide);
+      // The reading mask draws its own lens over the line being read. Three
+      // separate overlays chasing the same pointer is what the Reading panel
+      // used to do, and they visibly fought each other.
+      this.applyReadingGuide(!!settings.readingGuide && !settings.readingMask);
       this.applyFocusMode(!!settings.focusMode);
       this.applyHideImages(!!settings.hideImages);
       this.applyMagnifier(!!settings.magnifier, settings.magnifierZoom || 2);

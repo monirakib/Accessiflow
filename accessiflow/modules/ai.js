@@ -115,9 +115,14 @@ class AIModule {
     const dataUrl = await this._imageDataUrl(img);
     if (!dataUrl) return null;
 
+    const src = img.currentSrc || img.src || '';
+    const cache = globalThis.ACCESSIFLOW_AI_CACHE;
     const text = await this._ask('aiDescribeImage', {
       image: dataUrl,
-      hint: this._imageContext(img)
+      hint: this._imageContext(img),
+      // Only real addresses are remembered. A data: or blob: URL is either
+      // unique per load or the image itself, and neither is worth keeping.
+      cacheKey: /^https?:/i.test(src) && cache ? 'img|' + cache.normalizeSrc(src) : ''
     });
 
     if (text) {
@@ -274,7 +279,7 @@ class AIModule {
    * user with a reading difficulty can also see it. Earlier versions hid this
    * off-screen, which helped nobody who reads with their eyes.
    */
-  _announceSummary(summary) {
+  _announceSummary(summary, bullets) {
     let panel = document.getElementById('accessiflow-page-summary');
     if (!panel) {
       panel = document.createElement('aside');
@@ -301,7 +306,26 @@ class AIModule {
       document.body.prepend(panel);
     }
 
-    panel.querySelector('.accessiflow-summary-text').textContent = summary;
+    const body = panel.querySelector('.accessiflow-summary-text');
+    const oldList = panel.querySelector('.accessiflow-summary-list');
+    if (oldList) oldList.remove();
+    if (bullets && bullets.length) {
+      body.textContent = '';
+      body.hidden = true;
+      const list = document.createElement('ul');
+      list.className = 'accessiflow-summary-list';
+      bullets.forEach(b => {
+        const item = document.createElement('li');
+        item.textContent = b;
+        list.appendChild(item);
+      });
+      body.after(list);
+      panel.querySelector('.accessiflow-summary-heading').textContent = 'The key points';
+    } else {
+      body.hidden = false;
+      body.textContent = summary;
+      panel.querySelector('.accessiflow-summary-heading').textContent = 'Page summary';
+    }
     const closeBtn = panel.querySelector('.accessiflow-summary-close');
     if (closeBtn) closeBtn.focus();
   }
@@ -332,7 +356,9 @@ class AIModule {
 
     const label = await this._ask('aiLabelLink', {
       linkText: (anchor.textContent || '').trim(),
-      context: context
+      context: context,
+      cacheKey: 'link|' + location.pathname + '|' + (anchor.getAttribute('href') || '') +
+        '|' + (anchor.textContent || '').trim()
     });
 
     if (label) {
@@ -363,6 +389,428 @@ class AIModule {
 
     this._log('Relabelled ' + fixed + ' of ' + targets.length + ' links');
     return { fixed: fixed, total: targets.length, error: error };
+  }
+
+  /** The whole reply from the service worker, for operations that return more than text. */
+  _askFull(action, payload) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(Object.assign({ action: action }, payload), response => {
+        if (chrome.runtime.lastError) {
+          reject(new Error('AccessiFlow lost its connection. Please try again.'));
+          return;
+        }
+        if (!response || !response.success) {
+          const err = new Error((response && response.error) || 'That did not work.');
+          err.code = response && response.code;
+          reject(err);
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  /**
+   * Errors that mean "stop quietly" rather than "tell the user". Automatic
+   * healing runs with nobody watching; announcing that an hourly allowance ran
+   * out, on every page load, would be noise.
+   */
+  _isQuietStop(err) {
+    return err && (err.code === 'no_consent' || err.code === 'budget');
+  }
+
+  // ── Control names (WCAG 4.1.2): generative code healing ─────────────────
+  //
+  // Screen reader repairs (blind.js) names what it can for free, from an image
+  // inside the button, an SVG <title> or an icon-font class. What it cannot
+  // name gets the placeholder "Button (no description available)", marked
+  // data-accessiflow-btn-repaired="placeholder". Those, and only those, come
+  // here. The model is the fallback for what heuristics genuinely cannot do,
+  // not a replacement for them.
+
+  _controlsNeedingName() {
+    const found = document.querySelectorAll(
+      '[data-accessiflow-btn-repaired="placeholder"]:not([data-accessiflow-ai-control]), ' +
+      '[data-accessiflow-link-repaired="placeholder"]:not([data-accessiflow-ai-control])'
+    );
+    return Array.from(found).filter(el => {
+      if (el.closest('[id^="accessiflow-"]')) return false;
+      if (this._isCaptcha(el)) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 || rect.height > 0;
+    });
+  }
+
+  countControlsNeedingName() { return this._controlsNeedingName().length; }
+
+  /**
+   * A signature that stays the same on the next visit: where the control sits
+   * in the page, what it is called in the markup, and for a link where it
+   * goes. Deliberately excludes anything that changes per request, such as
+   * generated ids with numbers in them.
+   */
+  _controlSignature(el) {
+    const path = [];
+    let node = el;
+    for (let depth = 0; node && node.nodeType === 1 && node !== document.body && depth < 8; depth++) {
+      let index = 1;
+      for (let sib = node.previousElementSibling; sib; sib = sib.previousElementSibling) {
+        if (sib.tagName === node.tagName) index++;
+      }
+      path.unshift(node.tagName.toLowerCase() + ':' + index);
+      node = node.parentElement;
+    }
+    const classes = (typeof el.className === 'string' ? el.className : '')
+      .split(/\s+/).filter(c => c && !/\d{3,}/.test(c)).sort().join('.');
+    let href = '';
+    if (el.tagName === 'A') {
+      try { href = new URL(el.getAttribute('href') || '', location.href).pathname; } catch (e) { href = ''; }
+    }
+    return location.pathname + '|' + path.join('>') + '|' + classes + '|' + href;
+  }
+
+  /** What there is to go on for one control, in the shape the proxy expects. */
+  _controlContext(el) {
+    const clean = t => String(t || '').replace(/\s+/g, ' ').trim();
+
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const kind = el.tagName === 'A' ? 'link'
+      : ['tab', 'menuitem', 'checkbox', 'radio'].indexOf(role) !== -1 ? role
+        : 'button';
+
+    // Class names frequently say what a control is for: btn-submit-claim,
+    // icon-trash. The icon inside counts as much as the control itself.
+    const bits = [];
+    const collect = node => {
+      if (!node) return;
+      if (typeof node.className === 'string') bits.push(node.className);
+      else if (node.className && node.className.baseVal) bits.push(node.className.baseVal);
+      ['id', 'name', 'data-testid', 'data-action', 'data-icon', 'value'].forEach(attr => {
+        const v = node.getAttribute && node.getAttribute(attr);
+        if (v) bits.push(v);
+      });
+    };
+    collect(el);
+    el.querySelectorAll('i, svg, span, img, use').forEach(collect);
+    const use = el.querySelector('use');
+    if (use) bits.push(use.getAttribute('href') || use.getAttribute('xlink:href') || '');
+    if (el.tagName === 'A') {
+      try { bits.push(new URL(el.getAttribute('href') || '', location.href).pathname); } catch (e) { /* skip */ }
+    }
+    const classList = clean(bits.join(' ')).slice(0, 200);
+
+    // What the surrounding form or section is for. "Submit" means nothing;
+    // "Submit" inside "Medical history form" is the whole answer.
+    let formPurpose = '';
+    const form = el.closest('form, [role="form"], dialog, [role="dialog"], section, fieldset');
+    if (form) {
+      const legend = form.querySelector('legend, h1, h2, h3, h4, [role="heading"]');
+      formPurpose = clean(
+        form.getAttribute('aria-label') ||
+        (legend && legend.textContent) ||
+        form.getAttribute('name') ||
+        form.getAttribute('id') ||
+        ''
+      );
+      const action = form.getAttribute && form.getAttribute('action');
+      if (action) formPurpose += ' (sends to ' + action.split('?')[0] + ')';
+    }
+
+    // Nearby text, minus the control's own (it has none; that is the problem).
+    let context = '';
+    const container = el.closest('li, td, p, div, section, article, header, nav, footer');
+    if (container) {
+      const clone = container.cloneNode(true);
+      clone.querySelectorAll('script, style').forEach(n => n.remove());
+      context = clean(clone.textContent).slice(0, 400);
+    }
+
+    return {
+      kind: kind,
+      classList: classList,
+      formPurpose: formPurpose.slice(0, 200),
+      pageTitle: clean(document.title).slice(0, 120),
+      context: context
+    };
+  }
+
+  /**
+   * Names one control. Returns the name, or null if the model was not sure.
+   * @param {boolean} auto true when nobody pressed a button for this
+   */
+  async nameControl(el, auto) {
+    if (!el || el.getAttribute('data-accessiflow-ai-control')) return null;
+    const ctx = this._controlContext(el);
+    if (!ctx.classList && !ctx.context && !ctx.formPurpose) return null;
+
+    const reply = await this._askFull('aiLabelControl', Object.assign(ctx, {
+      cacheKey: this._controlSignature(el),
+      auto: !!auto
+    }));
+    const name = (reply.text || '').trim();
+    if (!name) return null;
+
+    if (!this._originalLabels) this._originalLabels = new Map();
+    if (!this._originalLabels.has(el)) this._originalLabels.set(el, el.getAttribute('aria-label'));
+    el.setAttribute('aria-label', name);
+    el.setAttribute('data-accessiflow-ai-control', reply.cached ? 'cached' : 'true');
+    this._log('Named control: "' + name + '"' + (reply.cached ? ' (remembered)' : ''));
+    return name;
+  }
+
+  /**
+   * Names every unnamed control on the page, up to the per-page cap.
+   *
+   * @param {{auto?: boolean, onProgress?: function}} opts
+   * @returns {{named:number, total:number, remembered:number, error:?string}}
+   */
+  async healControls(opts) {
+    const o = opts || {};
+    this._resetCancel();
+    const targets = this._controlsNeedingName().slice(0, this.cfg.MAX_CONTROLS_PER_PAGE);
+    let named = 0;
+    let remembered = 0;
+    let error = null;
+
+    for (let i = 0; i < targets.length; i++) {
+      if (this.cancelled) break;
+      try {
+        const name = await this.nameControl(targets[i], o.auto);
+        if (name) {
+          named++;
+          if (targets[i].getAttribute('data-accessiflow-ai-control') === 'cached') remembered++;
+        }
+      } catch (err) {
+        if (!this._isQuietStop(err)) error = err.message;
+        break;
+      }
+      if (o.onProgress) o.onProgress(i + 1, targets.length);
+      // A remembered answer cost nothing, so there is nothing to be polite about.
+      if (targets[i].getAttribute('data-accessiflow-ai-control') !== 'cached') await this._pause();
+    }
+
+    if (targets.length) {
+      this._log('Named ' + named + ' of ' + targets.length + ' controls (' + remembered + ' remembered)');
+    }
+    return { named: named, total: targets.length, remembered: remembered, error: error };
+  }
+
+  /** Puts every control name the AI wrote back the way it was. */
+  revertControls() {
+    if (!this._originalLabels) return;
+    this._originalLabels.forEach((original, el) => {
+      try {
+        if (original === null) el.removeAttribute('aria-label');
+        else el.setAttribute('aria-label', original);
+        el.removeAttribute('data-accessiflow-ai-control');
+      } catch (e) { /* element gone */ }
+    });
+    this._originalLabels = new Map();
+  }
+
+  // ── Plain language (WCAG 3.1.5): the article simplifier ─────────────────
+  //
+  // Rewrites dense paragraphs in place, with three guarantees:
+  //
+  //   * Reversible. The original child nodes are moved into a hidden wrapper,
+  //     not copied, so restoring them brings back their event listeners too.
+  //   * Visible. A persistent notice says the text was rewritten by AI. A
+  //     simplifier that quietly changes the meaning of a medical, legal or
+  //     financial page does real harm, and the reader has to be able to tell.
+  //   * Honest about links. They cannot be reliably spliced into new prose, so
+  //     each rewritten paragraph lists its original links underneath instead.
+
+  _simplifiableParagraphs() {
+    const root = document.querySelector('main, [role="main"], article') || document.body;
+    return Array.from(root.querySelectorAll('p, li, dd, blockquote'))
+      .filter(el => {
+        if (el.hasAttribute('data-accessiflow-simplified')) return false;
+        if (el.closest('[data-accessiflow-simplified]')) return false;
+        if (el.closest('nav, footer, aside, header, [id^="accessiflow-"], form')) return false;
+        // A list item that contains paragraphs is handled through them.
+        if (el.querySelector('p, li, dd, blockquote')) return false;
+        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text.length < this.cfg.SIMPLIFY_MIN_CHARS) return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 || rect.height > 0;
+      })
+      .slice(0, this.cfg.SIMPLIFY_MAX_PARAGRAPHS);
+  }
+
+  countSimplifiable() { return this._simplifiableParagraphs().length; }
+
+  _batches(paragraphs) {
+    const batches = [];
+    let current = [];
+    let chars = 0;
+    paragraphs.forEach(el => {
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, this.cfg.SIMPLIFY_BATCH_CHARS);
+      if (current.length && (current.length >= this.cfg.SIMPLIFY_BATCH_PARAGRAPHS ||
+        chars + text.length > this.cfg.SIMPLIFY_BATCH_CHARS)) {
+        batches.push(current);
+        current = [];
+        chars = 0;
+      }
+      current.push({ el: el, text: text });
+      chars += text.length;
+    });
+    if (current.length) batches.push(current);
+    return batches;
+  }
+
+  /**
+   * @param {function} onProgress (done, total)
+   * @returns {{rewritten:number, total:number, error:?string}}
+   */
+  async simplifyPage(onProgress) {
+    this._resetCancel();
+    const paragraphs = this._simplifiableParagraphs();
+    if (!paragraphs.length) {
+      throw new Error('There are no long paragraphs on this page to make simpler.');
+    }
+
+    const batches = this._batches(paragraphs);
+    let rewritten = 0;
+    let done = 0;
+    let error = null;
+
+    for (let b = 0; b < batches.length; b++) {
+      if (this.cancelled) break;
+      const batch = batches[b];
+      try {
+        const reply = await this._askFull('aiSimplify', {
+          paragraphs: batch.map(p => p.text),
+          cacheKey: 'simplify|' + batch.map(p => p.text).join('␞')
+        });
+        const rewrites = reply.rewrites || [];
+        // The proxy has already refused mismatched batches; this is the
+        // second line of defence, because putting one paragraph's rewrite in
+        // another's place would change what the page says.
+        if (rewrites.length === batch.length) {
+          batch.forEach((p, i) => { if (this._applyRewrite(p.el, rewrites[i])) rewritten++; });
+        }
+      } catch (err) {
+        error = err.message;
+        break;
+      }
+      done += batch.length;
+      if (onProgress) onProgress(done, paragraphs.length);
+      await this._pause();
+    }
+
+    if (rewritten) this._showSimplifiedNotice();
+    return { rewritten: rewritten, total: paragraphs.length, error: error };
+  }
+
+  _applyRewrite(el, text) {
+    if (!text || !el.isConnected) return false;
+    if (!this._simplified) this._simplified = [];
+
+    // Links first, while they are still where the page put them.
+    const links = Array.from(el.querySelectorAll('a[href]'));
+
+    const original = document.createElement('span');
+    original.className = 'accessiflow-simplified-original';
+    original.hidden = true;
+    while (el.firstChild) original.appendChild(el.firstChild);
+
+    const rewrite = document.createElement('span');
+    rewrite.className = 'accessiflow-simplified-text';
+    rewrite.textContent = text;
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'accessiflow-simplified-toggle';
+    toggle.textContent = 'Show original';
+    toggle.setAttribute('aria-pressed', 'false');
+    toggle.addEventListener('click', () => {
+      const showingOriginal = toggle.getAttribute('aria-pressed') === 'true';
+      original.hidden = showingOriginal;
+      rewrite.hidden = !showingOriginal;
+      if (linkList) linkList.hidden = !showingOriginal;
+      toggle.setAttribute('aria-pressed', showingOriginal ? 'false' : 'true');
+      toggle.textContent = showingOriginal ? 'Show original' : 'Show simpler version';
+    });
+
+    let linkList = null;
+    if (links.length) {
+      linkList = document.createElement('span');
+      linkList.className = 'accessiflow-simplified-links';
+      linkList.appendChild(document.createTextNode('Links in this paragraph: '));
+      links.forEach((a, i) => {
+        const copy = a.cloneNode(true);
+        copy.removeAttribute('id');
+        linkList.appendChild(copy);
+        if (i < links.length - 1) linkList.appendChild(document.createTextNode(', '));
+      });
+    }
+
+    el.appendChild(rewrite);
+    el.appendChild(document.createTextNode(' '));
+    el.appendChild(toggle);
+    if (linkList) el.appendChild(linkList);
+    el.appendChild(original);
+    el.setAttribute('data-accessiflow-simplified', 'true');
+
+    this._simplified.push({ el: el, original: original });
+    return true;
+  }
+
+  _showSimplifiedNotice() {
+    let notice = document.getElementById('accessiflow-simplified-notice');
+    if (notice) return;
+    notice = document.createElement('div');
+    notice.id = 'accessiflow-simplified-notice';
+    notice.setAttribute('role', 'status');
+    notice.className = 'accessiflow-simplified-notice';
+
+    const text = document.createElement('span');
+    text.textContent = 'Some text on this page has been rewritten in plain language by AI. ' +
+      'Check anything important against the original. Alt+Shift+O restores it.';
+    const restore = document.createElement('button');
+    restore.type = 'button';
+    restore.textContent = 'Restore the original text';
+    restore.addEventListener('click', () => this.revertSimplified());
+
+    notice.append(text, restore);
+    document.body.appendChild(notice);
+  }
+
+  /** Puts every rewritten paragraph back exactly as it was. */
+  revertSimplified() {
+    const list = this._simplified || [];
+    list.forEach(({ el, original }) => {
+      try {
+        const nodes = Array.from(original.childNodes);
+        while (el.firstChild) el.removeChild(el.firstChild);
+        nodes.forEach(n => el.appendChild(n));
+        el.removeAttribute('data-accessiflow-simplified');
+      } catch (e) { /* element gone */ }
+    });
+    this._simplified = [];
+    const notice = document.getElementById('accessiflow-simplified-notice');
+    if (notice) notice.remove();
+    return list.length;
+  }
+
+  get simplifiedCount() { return (this._simplified || []).length; }
+
+  // ── TL;DR: three bullet points ──────────────────────────────────────────
+
+  async summarizeBullets() {
+    const text = this._mainText();
+    if (text.length < this.cfg.SIMPLIFY_MIN_CHARS) {
+      throw new Error('There is not enough text on this page to summarise.');
+    }
+    const reply = await this._askFull('aiBullets', {
+      text: text,
+      // The whole text, not a prefix: the service worker hashes it, and a page
+      // whose body changed below the first paragraph should not get yesterday's summary.
+      cacheKey: 'bullets|' + location.pathname + '|' + text
+    });
+    const bullets = reply.bullets || [];
+    if (bullets.length) this._announceSummary(bullets.join(' '), bullets);
+    return bullets;
   }
 
   _pause() {

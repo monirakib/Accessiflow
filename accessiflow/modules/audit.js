@@ -151,8 +151,78 @@ class AuditModule {
     return [this._issue('pass', '1.3.5', 'Autocomplete attributes present on personal fields', 0)];
   }
 
+  /**
+   * Text contrast, measured rather than left to the user.
+   *
+   * Each element that paints its own text is checked against the colour
+   * actually behind it (found by climbing past transparent ancestors), with
+   * translucent text composited first and the large-text allowance applied.
+   * Text over a background image is counted separately: its contrast depends
+   * on the pixels, which a stylesheet cannot tell us, so calling it a pass or
+   * a fail would both be guesses.
+   */
   _check_1_4_3() {
-    return [this._issue('warn', '1.4.3', 'Text contrast requires manual verification (4.5:1 minimum)', 0)];
+    const C = globalThis.ACCESSIFLOW_COLOR;
+    const G = globalThis.AccessiFlowGeometry;
+    if (!C || !G) {
+      return [this._issue('warn', '1.4.3', 'Text contrast could not be measured on this page', 0)];
+    }
+
+    const MAX = 600;
+    let checked = 0;
+    let failing = 0;
+    let overImages = 0;
+    let worst = null;
+
+    const all = document.querySelectorAll('body *');
+    for (let i = 0; i < all.length && checked < MAX; i++) {
+      const el = all[i];
+      if (el.closest('[id^="accessiflow-"], script, style, noscript, svg')) continue;
+
+      let ownText = false;
+      for (let n = el.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3 && n.nodeValue.trim()) { ownText = true; break; }
+      }
+      if (!ownText) continue;
+
+      const cs = window.getComputedStyle(el);
+      if (!cs || cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) continue;
+
+      // A background image anywhere up the chain decides the contrast.
+      let imaged = false;
+      for (let a = el; a && a.nodeType === 1; a = a.parentElement) {
+        const bgImage = window.getComputedStyle(a).backgroundImage;
+        if (bgImage && bgImage !== 'none') { imaged = true; break; }
+        const bg = window.getComputedStyle(a).backgroundColor;
+        if (bg && !C.isTransparent(bg) && C.parseColor(bg).a >= 1) break;
+      }
+      if (imaged) { overImages++; continue; }
+
+      const bg = G.effectiveBackground(el);
+      const fg = C.blend(cs.color, bg);
+      const ratio = C.contrastRatio(fg, bg);
+      const need = C.requiredRatio(parseFloat(cs.fontSize) || 16, cs.fontWeight, 4.5);
+      checked++;
+      if (ratio < need) {
+        failing++;
+        if (!worst || ratio < worst.ratio) worst = { ratio: ratio, fg: C.toHex(fg), bg: C.toHex(bg) };
+      }
+    }
+
+    const issues = [];
+    if (failing) {
+      issues.push(this._issue('fail', '1.4.3',
+        'Text below its minimum contrast (worst: ' + worst.fg + ' on ' + worst.bg + ' at ' +
+        (Math.round(worst.ratio * 100) / 100) + ':1)', failing));
+    } else if (checked) {
+      issues.push(this._issue('pass', '1.4.3', 'Text meets its minimum contrast', checked));
+    }
+    if (overImages) {
+      issues.push(this._issue('warn', '1.4.3',
+        'Text over a background image, whose contrast depends on the picture and needs checking by eye', overImages));
+    }
+    if (!issues.length) issues.push(this._issue('pass', '1.4.3', 'No text found to check', 0));
+    return issues;
   }
 
   _check_1_4_4() {

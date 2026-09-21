@@ -985,3 +985,12 @@ kbd {
   }
   .row { border-bottom-color: var(--border-strong); }
 }
+
+/* Shown when another setting overrides this one, e.g. smart dark mode
+   overriding the plain dark background switch. */
+.row-conflict {
+  display: block;
+  margin-top: 4px;
+  font-style: italic;
+  opacity: 0.85;
+}

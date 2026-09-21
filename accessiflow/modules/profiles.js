@@ -18,7 +18,7 @@
       desc: 'Bigger text, stronger colours, clearer links.',
       settings: {
         highContrast: true, textSize: 130, lineHeight: 1.7,
-        dyslexiaFont: true, highlightLinks: true, enhancedFocus: true
+        dyslexiaFont: true, highlightLinks: true, focusHalo: true
       }
     },
     {
@@ -26,16 +26,20 @@
       icon: 'sound',
       label: 'Screen reader',
       desc: 'Repairs labels and landmarks, reads selected text.',
-      settings: { blindMode: true, ttsReadOnSelect: true, speakImageDescriptions: true }
+      settings: {
+        blindMode: true, ttsReadOnSelect: true, speakImageDescriptions: true,
+        ttsReadOnHover: true, ttsReadOnFocus: true, focusLock: true
+      }
     },
     {
       id: 'motor', key: '3',
       icon: 'hand',
       label: 'Hand movement',
-      desc: 'Bigger buttons, larger pointer, steadier clicks.',
+      desc: 'Bigger buttons, steadier clicks, and near misses still land.',
       settings: {
         largeCursor: true, cursorSize: 2.5, bigTargets: true,
-        enhancedFocus: true, stopAnimations: true, tremorFilter: true
+        focusHalo: true, stopAnimations: true, tremorFilter: true,
+        clickSnapping: true, focusLock: true, speechToText: true
       }
     },
     {
@@ -75,7 +79,8 @@
       desc: 'Larger everything, with clear focus and links.',
       settings: {
         textSize: 140, lineHeight: 2.0, largeCursor: true,
-        bigTargets: true, enhancedFocus: true, highlightLinks: true
+        bigTargets: true, focusHalo: true, highlightLinks: true,
+        clickSnapping: true
       }
     }
   ];

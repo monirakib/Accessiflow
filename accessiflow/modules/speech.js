@@ -303,102 +303,344 @@ class SpeechModule {
   }
 
   // ── Speech-to-Text (voice input for form fields) ──────────
-  applySpeechToText(active) {
-    try {
-      if (active) {
-        if (this._speechToText) return;
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-          this._warn('SpeechRecognition API not supported in this browser');
-          return;
-        }
+  // ── Dictation ─────────────────────────────────────────────
+  //
+  // Speaking instead of typing, for anyone who finds a keyboard hard: tremor,
+  // one hand, pain, RSI, or simply a long form.
+  //
+  // The previous version could not be used for a form. It replaced the whole
+  // field with each utterance, so it wiped what was already there and every
+  // sentence erased the one before it; it stopped after one phrase, so a
+  // paragraph meant clicking a 28-pixel target over and over, which is exactly
+  // the difficulty being worked around; and it wrote half-recognised text
+  // straight into the field. This one inserts at the cursor, keeps listening,
+  // and shows what it is hearing somewhere other than the page.
 
-        // Add mic buttons to all text inputs and textareas
-        const inputs = document.querySelectorAll('input[type="text"], input[type="search"], input[type="email"], input[type="url"], input:not([type]), textarea');
-        this._speechToText = [];
+  /** What the spoken words mean, when they are an instruction and not text. */
+  dictationCommand(spoken, lang) {
+    const said = String(spoken || '').trim().toLowerCase().replace(/[।.?!,]+$/, '');
 
-        inputs.forEach(input => {
-          if (input.getAttribute('data-accessiflow-mic')) return;
-          input.setAttribute('data-accessiflow-mic', 'true');
+    const punctuation = {
+      'full stop': '.', 'period': '.', 'comma': ',', 'question mark': '?',
+      'exclamation mark': '!', 'exclamation point': '!', 'colon': ':',
+      'semicolon': ';', 'dash': ' - ', 'open quote': ' "', 'close quote': '" ',
+      'new line': '\n', 'newline': '\n', 'next line': '\n', 'new paragraph': '\n\n',
+      // Bangla: the sentence ends with a daari, and people say its name.
+      'দাঁড়ি': '।', 'daari': '।', 'dari': '।'
+    };
+    if (Object.prototype.hasOwnProperty.call(punctuation, said)) {
+      return { type: 'punctuation', text: punctuation[said] };
+    }
 
-          const mic = document.createElement('button');
-          mic.type = 'button';
-          mic.textContent = '🎤';
-          mic.setAttribute('aria-label', 'Voice input for ' + (input.getAttribute('aria-label') || input.name || 'text field'));
-          mic.style.cssText = 'position:absolute;right:4px;top:50%;transform:translateY(-50%);width:28px;height:28px;background:rgba(79,255,176,0.2);border:1px solid #4fffb0;border-radius:50%;font-size:14px;cursor:pointer;z-index:10;display:flex;align-items:center;justify-content:center;padding:0;';
+    if (said === 'delete that' || said === 'scratch that' || said === 'undo that') {
+      return { type: 'undo' };
+    }
+    if (said === 'stop dictation' || said === 'stop listening' || said === 'stop dictating') {
+      return { type: 'stop' };
+    }
 
-          // Wrap input in relative container if needed
-          const parent = input.parentElement;
-          if (parent && window.getComputedStyle(parent).position === 'static') {
-            parent.style.position = 'relative';
-          }
-          input.style.paddingRight = '36px';
-          if (parent) parent.appendChild(mic);
+    void lang;
+    return { type: 'text', text: String(spoken || '') };
+  }
 
-          mic.addEventListener('click', () => {
-            if (this._isListening) {
-              if (this._recognition) this._recognition.stop();
-              mic.style.background = 'rgba(79,255,176,0.2)';
-              this._isListening = false;
-              return;
-            }
+  /** Puts text where the cursor is, leaving everything else alone. */
+  insertIntoField(field, text) {
+    if (!field || !text) return 0;
 
-            const recognition = new SpeechRecognition();
-            recognition.continuous = false;
-            recognition.interimResults = true;
-            recognition.lang = document.documentElement.lang || 'en-US';
-            this._recognition = recognition;
-            this._isListening = true;
-            mic.style.background = 'rgba(239,68,68,0.5)';
-            mic.textContent = '⏺';
-
-            recognition.onresult = (event) => {
-              let transcript = '';
-              for (let i = event.resultIndex; i < event.results.length; i++) {
-                transcript += event.results[i][0].transcript;
-              }
-              if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
-                input.value = transcript;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-              }
-            };
-
-            recognition.onend = () => {
-              mic.style.background = 'rgba(79,255,176,0.2)';
-              mic.textContent = '🎤';
-              this._isListening = false;
-            };
-
-            recognition.onerror = () => {
-              mic.style.background = 'rgba(79,255,176,0.2)';
-              mic.textContent = '🎤';
-              this._isListening = false;
-            };
-
-            recognition.start();
-          });
-
-          this._speechToText.push({ input, mic });
-        });
+    if (field.isContentEditable) {
+      field.focus();
+      const selection = field.ownerDocument.getSelection();
+      if (selection && selection.rangeCount) {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        const node = field.ownerDocument.createTextNode(text);
+        range.insertNode(node);
+        range.setStartAfter(node);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
       } else {
-        if (this._speechToText) {
-          this._speechToText.forEach(({ input, mic }) => {
-            try {
-              input.removeAttribute('data-accessiflow-mic');
-              input.style.paddingRight = '';
-              mic.remove();
-            } catch (e) { /* skip */ }
-          });
-          this._speechToText = null;
-        }
-        if (this._recognition) {
-          try { this._recognition.stop(); } catch (e) { /* skip */ }
-          this._recognition = null;
-        }
-        this._isListening = false;
+        field.textContent += text;
+      }
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      return text.length;
+    }
+
+    const value = field.value || '';
+    // selectionStart is null on some input types; appending is the safe answer.
+    const start = typeof field.selectionStart === 'number' ? field.selectionStart : value.length;
+    const end = typeof field.selectionEnd === 'number' ? field.selectionEnd : value.length;
+
+    field.value = value.slice(0, start) + text + value.slice(end);
+    const caret = start + text.length;
+    try { field.setSelectionRange(caret, caret); } catch (e) { /* not all fields allow it */ }
+
+    // Pages listen for these; a framework-backed form ignores a value that
+    // arrives without them.
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new Event('change', { bubbles: true }));
+    return text.length;
+  }
+
+  /**
+   * Starts from the end of whatever is already in the box.
+   *
+   * Tabbing into a field in Chrome selects everything in it, so inserting at
+   * the selection would replace the text the user already typed — which is
+   * the fault this whole rewrite exists to remove. Clicking somewhere inside
+   * the text afterwards still works: only the start is forced.
+   */
+  _caretToEnd(field) {
+    try {
+      if (field.isContentEditable) {
+        const selection = field.ownerDocument.getSelection();
+        const range = field.ownerDocument.createRange();
+        range.selectNodeContents(field);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+      const end = (field.value || '').length;
+      // Number and email boxes refuse this in Chrome, which is harmless.
+      if (typeof field.setSelectionRange === 'function') field.setSelectionRange(end, end);
+    } catch (e) { /* the box does not allow a caret; appending still works */ }
+  }
+
+  /**
+   * The words, spaced against what they are joining. A space is added only
+   * when there is something before them that does not already end in one, so
+   * dictating after "Monir " does not produce "Monir  Rakib".
+   */
+  dictationText(field, said) {
+    const words = String(said || '').trim();
+    if (!words) return '';
+
+    const value = field && !field.isContentEditable ? (field.value || '')
+                : (field ? field.textContent || '' : '');
+    const caret = field && typeof field.selectionStart === 'number' ? field.selectionStart : value.length;
+    const before = value.slice(0, caret);
+
+    return (before && !/\s$/.test(before) ? ' ' : '') + words;
+  }
+
+  /** Takes back the last thing dictated, for "delete that". */
+  undoLastDictation() {
+    const state = this._dictation;
+    if (!state || !state.field || !state.lastLength) return;
+
+    const field = state.field;
+    if (field.isContentEditable) {
+      field.textContent = field.textContent.slice(0, -state.lastLength);
+    } else {
+      const value = field.value || '';
+      const caret = typeof field.selectionStart === 'number' ? field.selectionStart : value.length;
+      const from = Math.max(0, caret - state.lastLength);
+      field.value = value.slice(0, from) + value.slice(caret);
+      try { field.setSelectionRange(from, from); } catch (e) { /* ok */ }
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    state.lastLength = 0;
+  }
+
+  /** Every box worth dictating into. Passwords are deliberately not included. */
+  _dictationFields() {
+    return Array.from(document.querySelectorAll(
+      'input[type="text"], input[type="search"], input[type="email"], input[type="url"], ' +
+      'input[type="tel"], input[type="number"], input:not([type]), textarea, [contenteditable="true"]'
+    )).filter(el => !el.disabled && !el.readOnly);
+  }
+
+  /** The box the words should go into: the focused one, or the only one. */
+  _dictationTarget() {
+    const active = document.activeElement;
+    const fields = this._dictationFields();
+    if (active && fields.indexOf(active) > -1) return active;
+    if (this._dictation && this._dictation.field &&
+        document.contains(this._dictation.field)) return this._dictation.field;
+    return fields.length === 1 ? fields[0] : null;
+  }
+
+  /**
+   * The bar. It exists so that what is being heard appears somewhere other
+   * than the field itself: half-recognised words arriving in a form look like
+   * the form is corrupting itself, and for someone who cannot easily undo
+   * that, it is worse than no dictation at all.
+   */
+  _dictationBar() {
+    let bar = document.getElementById('accessiflow-dictation');
+    if (bar) return bar;
+
+    bar = document.createElement('div');
+    bar.id = 'accessiflow-dictation';
+    bar.setAttribute('data-accessiflow-injected', 'true');
+    bar.setAttribute('role', 'region');
+    bar.setAttribute('aria-label', 'Dictation');
+    bar.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);' +
+      'z-index:2147483640;background:#16181f;color:#e8eaf0;border:2px solid #4fffb0;' +
+      'border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:10px;' +
+      'max-width:min(640px,92vw);box-shadow:0 8px 32px rgba(0,0,0,0.5);' +
+      'font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'accessiflow-dictation-toggle';
+    // 44px, because the people this is for are the ones who miss small targets.
+    button.style.cssText = 'min-width:44px;min-height:44px;border-radius:10px;border:2px solid #4fffb0;' +
+      'background:rgba(79,255,176,0.16);color:#4fffb0;font:inherit;font-weight:700;cursor:pointer;padding:0 12px;';
+    button.textContent = 'Start';
+    button.setAttribute('aria-label', 'Start dictation');
+    button.addEventListener('click', () => this.toggleDictation());
+
+    const status = document.createElement('p');
+    status.id = 'accessiflow-dictation-status';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    status.style.cssText = 'margin:0;flex:1;min-width:0;color:#aab3c4;';
+    status.textContent = 'Press Alt+Shift+V, or Start, then speak.';
+
+    bar.append(button, status);
+    document.body.appendChild(bar);
+    return bar;
+  }
+
+  _dictationSay(message, heard) {
+    const status = document.getElementById('accessiflow-dictation-status');
+    if (status) status.textContent = heard ? '“' + heard + '”' : message;
+  }
+
+  applySpeechToText(active, settings) {
+    try {
+      if (!active) {
+        this.stopDictation();
+        const bar = document.getElementById('accessiflow-dictation');
+        if (bar) bar.remove();
+        this._dictation = null;
+        return;
+      }
+
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Recognition) {
+        this._warn('This browser has no speech recognition.');
+        return;
+      }
+
+      this._dictation = this._dictation || { listening: false, field: null, lastLength: 0 };
+      this._dictation.lang = (settings && settings.dictationLanguage) || '';
+      this._dictationBar();
+
+      // Remember which box to fill while the user is choosing one.
+      if (!this._dictationFocus) {
+        this._dictationFocus = e => {
+          if (!this._dictation) return;
+          const field = e.target;
+          if (this._dictationFields().indexOf(field) > -1) this._dictation.field = field;
+        };
+        document.addEventListener('focusin', this._dictationFocus, true);
       }
     } catch (e) { this._warn('applySpeechToText: ' + e.message); }
   }
+
+  toggleDictation() {
+    if (this._dictation && this._dictation.listening) this.stopDictation();
+    else this.startDictation();
+  }
+
+  startDictation() {
+    try {
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Recognition || !this._dictation) return;
+
+      const field = this._dictationTarget();
+      if (!field) {
+        this._dictationSay('Click or tab into the box you want to fill, then start again.');
+        return;
+      }
+      this._dictation.field = field;
+      this._caretToEnd(field);
+
+      const recognition = new Recognition();
+      // Keeps listening: a paragraph should not cost one press per sentence.
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = this._dictation.lang ||
+        document.documentElement.getAttribute('lang') ||
+        navigator.language || 'en-US';
+
+      recognition.onresult = event => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const said = result[0].transcript;
+          if (!result.isFinal) { interim += said; continue; }
+
+          const command = this.dictationCommand(said, recognition.lang);
+          if (command.type === 'stop') { this.stopDictation(); return; }
+          if (command.type === 'undo') { this.undoLastDictation(); continue; }
+
+          const text = command.type === 'punctuation' ? command.text
+            : this.dictationText(this._dictation.field, said);
+          this._dictation.lastLength = this.insertIntoField(this._dictation.field, text);
+        }
+        if (interim.trim()) this._dictationSay('', interim.trim());
+      };
+
+      // Chrome stops on its own after a pause; start again so dictation lasts
+      // as long as the user wants it to.
+      recognition.onend = () => {
+        if (this._dictation && this._dictation.listening) {
+          try { recognition.start(); } catch (e) { /* already starting */ }
+        }
+      };
+
+      recognition.onerror = event => {
+        if (event.error === 'no-speech' || event.error === 'aborted') return;
+        const message = event.error === 'not-allowed'
+          ? 'Microphone blocked. Allow the microphone for this site, then start again.'
+          : 'Dictation stopped: ' + event.error;
+        this.stopDictation();
+        this._dictationSay(message);
+        this._warn(message);
+      };
+
+      this._dictation.recognition = recognition;
+      this._dictation.listening = true;
+      recognition.start();
+
+      const button = document.getElementById('accessiflow-dictation-toggle');
+      if (button) {
+        button.textContent = 'Stop';
+        button.setAttribute('aria-label', 'Stop dictation');
+        button.style.background = 'rgba(255,107,107,0.18)';
+        button.style.borderColor = '#ff6b6b';
+        button.style.color = '#ff6b6b';
+      }
+      this._dictationSay('Listening. Say "full stop", "new line", "delete that" or "stop dictation".');
+    } catch (e) {
+      this._warn('startDictation: ' + e.message);
+    }
+  }
+
+  stopDictation() {
+    const state = this._dictation;
+    if (!state) return;
+    state.listening = false;
+    if (state.recognition) {
+      try { state.recognition.stop(); } catch (e) { /* ok */ }
+      state.recognition = null;
+    }
+
+    const button = document.getElementById('accessiflow-dictation-toggle');
+    if (button) {
+      button.textContent = 'Start';
+      button.setAttribute('aria-label', 'Start dictation');
+      button.style.background = 'rgba(79,255,176,0.16)';
+      button.style.borderColor = '#4fffb0';
+      button.style.color = '#4fffb0';
+    }
+    this._dictationSay('Stopped. Press Alt+Shift+V to dictate again.');
+  }
+
 
   apply(settings) {
     try {
@@ -407,7 +649,7 @@ class SpeechModule {
       this.applyAACBoard(!!settings.aacBoard);
       this.applyQuickResponses(!!settings.quickResponses);
       this.applyTextInputBar(!!settings.textInputBar);
-      this.applySpeechToText(!!settings.speechToText);
+      this.applySpeechToText(!!settings.speechToText, settings);
     } catch (e) { this._warn('apply: ' + e.message); }
   }
 

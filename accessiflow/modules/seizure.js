@@ -10,6 +10,15 @@ class SeizureModule {
     this._removedBgVideos = [];
     this._flashObserver = null;
     this._animationFrameId = null;
+
+    // Micro-animation interceptor
+    this._interceptorOn = false;
+    this._pausedAnimations = [];
+    this._animationStartHandler = null;
+    this._animationSweep = null;
+    this._tickerObserver = null;
+    this._frozenTickers = new Map();
+    this._hookFeatures = null;
   }
 
   _log(msg) { console.log('[AccessiFlow][Seizure] ' + msg); }
@@ -225,6 +234,240 @@ class SeizureModule {
     } catch (e) { this._warn('applyDisableAutoplay: ' + e.message); }
   }
 
+  // ── 5. Aggressive micro-animation interceptor ─────────────
+  //
+  // The CSS above stops anything declared in a stylesheet. It does nothing to
+  // the three kinds of movement that cause most of the trouble:
+  //
+  //   * animations driven from JavaScript through the Web Animations API,
+  //     which no stylesheet override can reach
+  //   * tickers and counters that rewrite their own text several times a
+  //     second
+  //   * elements blinking by toggling their own visibility
+  //
+  // Canvas loops and smooth scrolling need the page's own globals, so those
+  // are handled by page-hook.js in the page world. Everything here runs in
+  // the content script.
+  applyMotionInterceptor(active, settings) {
+    try {
+      if (active) {
+        if (this._interceptorOn) return;
+        this._interceptorOn = true;
+        const s = settings || {};
+
+        this._pauseWebAnimations();
+
+        // Animations that start later have to be caught too. animationstart
+        // fires for CSS animations; the polled sweep catches Web Animations
+        // started from script, which raise no event.
+        this._animationStartHandler = () => this._pauseWebAnimations();
+        document.addEventListener('animationstart', this._animationStartHandler, true);
+        document.addEventListener('transitionstart', this._animationStartHandler, true);
+        this._animationSweep = setInterval(() => {
+          if (document.hidden) return;
+          this._pauseWebAnimations();
+        }, 1000);
+
+        this._watchTickers();
+        if (s.freezeCanvas) this._freezePageWorld({ canvas: true, scroll: true });
+        else this._freezePageWorld({ canvas: false, scroll: true });
+      } else {
+        if (!this._interceptorOn) return;
+        this._interceptorOn = false;
+
+        if (this._animationStartHandler) {
+          document.removeEventListener('animationstart', this._animationStartHandler, true);
+          document.removeEventListener('transitionstart', this._animationStartHandler, true);
+          this._animationStartHandler = null;
+        }
+        if (this._animationSweep) { clearInterval(this._animationSweep); this._animationSweep = null; }
+
+        this._resumeWebAnimations();
+        this._unwatchTickers();
+        this._thawPageWorld();
+      }
+    } catch (e) { this._warn('applyMotionInterceptor: ' + e.message); }
+  }
+
+  /**
+   * Pauses every running animation, including ones started from script.
+   *
+   * Pausing rather than cancelling matters: cancel() would snap an element
+   * back to its start state, which for the very common fade-in-on-scroll
+   * pattern means opacity 0, and the content would vanish.
+   */
+  _pauseWebAnimations() {
+    try {
+      if (typeof document.getAnimations !== 'function') return;
+      const animations = document.getAnimations();
+      for (let i = 0; i < animations.length; i++) {
+        const animation = animations[i];
+        try {
+          if (animation.playState !== 'running') continue;
+          const target = animation.effect && animation.effect.target;
+          if (target && target.closest && target.closest('[id^="accessiflow-"]')) continue;
+
+          // An animation that is nearly done is let finish. Freezing a
+          // fade-in at 90% leaves content half-transparent for good, which is
+          // worse than the last fraction of a second of movement.
+          const timing = animation.effect && animation.effect.getComputedTiming
+            ? animation.effect.getComputedTiming() : null;
+          if (timing && timing.iterations !== Infinity && typeof timing.progress === 'number' &&
+            timing.progress > 0.8) {
+            animation.finish();
+            continue;
+          }
+
+          animation.pause();
+          this._pausedAnimations.push(animation);
+        } catch (err) { /* an animation can finish mid-loop */ }
+      }
+    } catch (e) { this._warn('_pauseWebAnimations: ' + e.message); }
+  }
+
+  _resumeWebAnimations() {
+    for (let i = 0; i < this._pausedAnimations.length; i++) {
+      try { this._pausedAnimations[i].play(); } catch (e) { /* gone */ }
+    }
+    this._pausedAnimations = [];
+  }
+
+  /**
+   * Finds elements rewriting their own text several times a second and pins
+   * them to their current value.
+   *
+   * Live prices, countdowns and news crawlers all do this. For someone with
+   * ADHD or a vestibular disorder, text that will not hold still is the single
+   * most distracting thing a page can contain, and none of it is reachable
+   * from CSS.
+   */
+  _watchTickers() {
+    if (this._tickerObserver) return;
+    const counts = new Map();
+
+    this._tickerObserver = new MutationObserver(mutations => {
+      if (!this._interceptorOn) return;
+      const now = Date.now();
+
+      for (let i = 0; i < mutations.length; i++) {
+        const m = mutations[i];
+
+        // Both shapes of the same event. `node.nodeValue = x` reports as
+        // characterData, while the far more common `el.textContent = x`
+        // replaces the child text node and reports as childList. Watching only
+        // the first misses most real tickers.
+        let host = null;
+        if (m.type === 'characterData') {
+          host = m.target.parentElement;
+        } else if (m.type === 'childList') {
+          const target = m.target;
+          if (!target || target.nodeType !== 1) continue;
+          // Only when the change is text, not structure. A list gaining a row
+          // is the page working, not a ticker.
+          const touched = [].concat(
+            Array.prototype.slice.call(m.addedNodes),
+            Array.prototype.slice.call(m.removedNodes)
+          );
+          if (!touched.length || !touched.every(n => n.nodeType === 3)) continue;
+          host = target;
+        } else {
+          continue;
+        }
+
+        if (!host) continue;
+        if (host.closest('[id^="accessiflow-"]')) continue;
+        // Never freeze a live region: it exists to announce changes, and
+        // pinning it would silence the very updates a screen reader needs.
+        if (host.closest('[aria-live], [role="status"], [role="alert"], [role="log"]')) continue;
+        if (host.isContentEditable) continue;
+        if (host.closest('input, textarea')) continue;
+
+        let record = counts.get(host);
+        if (!record || now - record.since > 1000) {
+          record = { count: 0, since: now };
+          counts.set(host, record);
+        }
+        record.count++;
+
+        // Twice a second, sustained, is a ticker rather than a page doing
+        // ordinary work.
+        if (record.count >= 3 && !this._frozenTickers.has(host)) {
+          this._freezeTicker(host);
+        }
+      }
+    });
+
+    this._tickerObserver.observe(document.body, {
+      characterData: true,
+      childList: true,
+      subtree: true
+    });
+  }
+
+  _freezeTicker(host) {
+    try {
+      const frozenText = host.textContent;
+      this._frozenTickers.set(host, {
+        html: host.innerHTML,
+        observer: null
+      });
+
+      // The element keeps being rewritten by the page's own script; putting
+      // the value back each time is what holds it still, without breaking the
+      // script that is doing the writing.
+      const guard = new MutationObserver(() => {
+        if (!this._interceptorOn) return;
+        if (host.textContent !== frozenText) {
+          guard.disconnect();
+          host.textContent = frozenText;
+          guard.observe(host, { characterData: true, childList: true, subtree: true });
+        }
+      });
+      guard.observe(host, { characterData: true, childList: true, subtree: true });
+      this._frozenTickers.get(host).observer = guard;
+
+      host.setAttribute('data-accessiflow-frozen-ticker', 'true');
+      this._log('froze a ticker: "' + String(frozenText).slice(0, 40) + '"');
+    } catch (e) { this._warn('_freezeTicker: ' + e.message); }
+  }
+
+  _unwatchTickers() {
+    if (this._tickerObserver) { this._tickerObserver.disconnect(); this._tickerObserver = null; }
+
+    this._frozenTickers.forEach((record, host) => {
+      try {
+        if (record.observer) record.observer.disconnect();
+        host.innerHTML = record.html;
+        host.removeAttribute('data-accessiflow-frozen-ticker');
+      } catch (e) { /* gone */ }
+    });
+    this._frozenTickers = new Map();
+  }
+
+  // ── The page world ────────────────────────────────────────
+  //
+  // Canvas loops and JavaScript-driven smooth scrolling live in the page's own
+  // globals, which a content script cannot reach. page-hook.js is injected
+  // into the page world to do that part, and is spoken to by postMessage.
+
+  _freezePageWorld(features) {
+    // Through the shared bridge, which queues the command until the hook has
+    // loaded. This used to post straight after appending the hook's script,
+    // which runs asynchronously, so the first freeze could arrive before
+    // anything was listening and be lost.
+    const bridge = globalThis.AccessiFlowPageBridge;
+    if (!bridge) return;
+    bridge.send('freeze', { features: features });
+    this._hookFeatures = features;
+  }
+
+  _thawPageWorld() {
+    const bridge = globalThis.AccessiFlowPageBridge;
+    if (!bridge || !bridge.injected || !this._hookFeatures) return;
+    bridge.send('thaw');
+    this._hookFeatures = null;
+  }
+
   apply(settings) {
     try {
       const css = this.buildCSS(settings);
@@ -233,6 +476,7 @@ class SeizureModule {
       this.applyReduceMotion(!!settings.reduceMotion);
       this.applyStaticGifs(!!settings.staticGifs);
       this.applyDisableAutoplay(!!settings.disableAutoplay);
+      this.applyMotionInterceptor(!!settings.motionInterceptor, settings);
     } catch (e) { this._warn('apply: ' + e.message); }
   }
 
@@ -243,6 +487,7 @@ class SeizureModule {
       this.applyReduceMotion(false);
       this.applyStaticGifs(false);
       this.applyDisableAutoplay(false);
+      this.applyMotionInterceptor(false);
     } catch (e) { this._warn('destroy: ' + e.message); }
   }
 }

@@ -59,31 +59,18 @@ class BlindModule {
     }
   }
 
-  // ─── Helper: focus trap for modal dialogs ──────────────────
+  // ─── Helper: focus trap for our own panels ──────────────────
+  //
+  // Delegates to the shared trap in modules/focus-lock.js. The version that
+  // used to live here worked out the first and last focusable element once,
+  // when the panel opened, so a panel whose contents changed afterwards
+  // wrapped the keyboard to elements that were no longer there. The shared one
+  // recomputes on each Tab.
+  //
+  // Returns the function that removes the trap.
   _trapFocus(container) {
-    const focusable = container.querySelectorAll(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    const handler = (e) => {
-      if (e.key !== 'Tab') return;
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    container.addEventListener('keydown', handler);
-    return handler;
+    if (typeof accessiflowTrapFocus === 'function') return accessiflowTrapFocus(container);
+    return () => {};
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -272,14 +259,17 @@ class BlindModule {
             }
           }
 
-          // Fallback
+          // Fallback. Marked as a placeholder, the same way undescribed
+          // images are, so the AI can find exactly the links nothing here could
+          // name without matching on our own wording.
+          const placeholder = !label;
           if (!label) {
             label = 'Link (no description available)';
           }
 
           this._trackRepair(link, 'aria-label', link.getAttribute('aria-label'));
           link.setAttribute('aria-label', label);
-          link.setAttribute('data-accessiflow-link-repaired', 'true');
+          link.setAttribute('data-accessiflow-link-repaired', placeholder ? 'placeholder' : 'true');
           repaired++;
         } catch (e) {
           this._warn('repairEmptyLinks single link: ' + e.message);
@@ -348,14 +338,15 @@ class BlindModule {
             }
           }
 
-          // Fallback
+          // Fallback, marked as a placeholder for the AI to replace.
+          const placeholder = !label;
           if (!label) {
             label = 'Button (no description available)';
           }
 
           this._trackRepair(btn, 'aria-label', btn.getAttribute('aria-label'));
           btn.setAttribute('aria-label', label);
-          btn.setAttribute('data-accessiflow-btn-repaired', 'true');
+          btn.setAttribute('data-accessiflow-btn-repaired', placeholder ? 'placeholder' : 'true');
           repaired++;
         } catch (e) {
           this._warn('repairEmptyButtons single btn: ' + e.message);
@@ -798,10 +789,12 @@ class BlindModule {
       document.body.appendChild(panel);
       this._landmarkPanel = panel;
 
-      // Focus trap
-      this._trapFocus(panel);
+      // Where the keyboard was before the panel opened, so it can be put
+      // back. Without this, closing the panel drops focus onto <body> and a
+      // keyboard user restarts from the top of the page.
+      panel._accessiflowReturnTo = document.activeElement;
+      panel._accessiflowUntrap = this._trapFocus(panel);
 
-      // Focus the first button
       const firstBtn = panel.querySelector('button');
       if (firstBtn) firstBtn.focus();
     } catch (e) {
@@ -812,9 +805,16 @@ class BlindModule {
   _closeLandmarkPanel() {
     try {
       if (this._landmarkPanel && document.body.contains(this._landmarkPanel)) {
-        this._landmarkPanel.remove();
+        const panel = this._landmarkPanel;
+        const back = panel._accessiflowReturnTo;
+        if (typeof panel._accessiflowUntrap === 'function') panel._accessiflowUntrap();
+        panel.remove();
         this._landmarkPanel = null;
         this._announce('Landmark navigation closed');
+        // Hand the keyboard back to whatever opened the panel.
+        if (back && back.isConnected && typeof back.focus === 'function') {
+          try { back.focus(); } catch (e) { /* the element went away */ }
+        }
       }
     } catch (e) { /* skip */ }
   }
@@ -932,7 +932,8 @@ class BlindModule {
       document.body.appendChild(panel);
       this._headingPanel = panel;
 
-      this._trapFocus(panel);
+      panel._accessiflowReturnTo = document.activeElement;
+      panel._accessiflowUntrap = this._trapFocus(panel);
 
       const firstBtn = panel.querySelector('[role="treeitem"]');
       if (firstBtn) firstBtn.focus();
@@ -944,9 +945,16 @@ class BlindModule {
   _closeHeadingPanel() {
     try {
       if (this._headingPanel && document.body.contains(this._headingPanel)) {
-        this._headingPanel.remove();
+        const panel = this._headingPanel;
+        const back = panel._accessiflowReturnTo;
+        if (typeof panel._accessiflowUntrap === 'function') panel._accessiflowUntrap();
+        panel.remove();
         this._headingPanel = null;
         this._announce('Heading navigation closed');
+        // Hand the keyboard back to whatever opened the panel.
+        if (back && back.isConnected && typeof back.focus === 'function') {
+          try { back.focus(); } catch (e) { /* the element went away */ }
+        }
       }
     } catch (e) { /* skip */ }
   }

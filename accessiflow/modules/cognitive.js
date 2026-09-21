@@ -5,8 +5,9 @@
 class CognitiveModule {
   constructor() {
     this._styleEl = null;
-    this._maskTop = null;
-    this._maskBottom = null;
+    this._maskLens = null;
+    this._maskLocked = false;
+    this._maskKeyHandler = null;
     this._maskHandler = null;
     this._lineRuler = null;
     this._lineRulerHandler = null;
@@ -65,7 +66,9 @@ class CognitiveModule {
         css += '#accessiflow-progress-bar { position:fixed;top:0;left:0;height:4px;background:linear-gradient(90deg,#4fffb0,#6366f1);z-index:2147483647;transition:width 0.15s ease;pointer-events:none; }\n';
       }
       // Active form field highlight
-      if (s.activeFieldHighlight) {
+      // Yields to the focus halo, which already draws a ring around whatever
+      // has the keyboard. Two rings on one field is noise, not emphasis.
+      if (s.activeFieldHighlight && !s.focusHalo) {
         css += 'input:focus, textarea:focus, select:focus { outline:3px solid #4fffb0 !important; outline-offset:2px !important; box-shadow:0 0 0 6px rgba(79,255,176,0.2) !important; background-color: rgba(79,255,176,0.05) !important; }\n';
       }
     } catch (e) { this._warn('buildCSS: ' + e.message); }
@@ -73,36 +76,201 @@ class CognitiveModule {
   }
 
   // ── 1. Reading mask ───────────────────────────────────────
-  applyReadingMask(active) {
+  // ── 1. Reading mask (cognitive masking) ──────────────────
+  //
+  // Dims the page except for a lens over what is being read.
+  //
+  // Three things separate this from the usual version of the idea:
+  //
+  //   * It snaps to the actual line or sentence under the pointer, found with
+  //     caretRangeFromPoint and Range.getClientRects, rather than to a fixed
+  //     band of pixels. A fixed band cuts through descenders on one line and
+  //     leaves half of the next one showing, which is precisely the ambiguity
+  //     a reading mask is supposed to remove.
+  //   * The cutout is one element using a very large box-shadow spread, not
+  //     two dimming panels with a gap between them. Two panels leave seams,
+  //     cannot be rounded, and cannot be softened at the edges.
+  //   * It can be locked in place, so reaching for the scrollbar does not
+  //     drag the lens away from the sentence being read.
+  applyReadingMask(active, settings) {
     try {
       if (active) {
-        if (this._maskTop) return;
-        const baseStyle = 'position:fixed;left:0;width:100%;pointer-events:none;z-index:2147483645;background:rgba(0,0,0,0.75);transition:height 0.05s linear;';
-        this._maskTop = document.createElement('div');
-        this._maskTop.id = 'accessiflow-mask-top';
-        this._maskTop.setAttribute('aria-hidden', 'true');
-        this._maskTop.style.cssText = baseStyle + 'top:0;height:40%;';
-        this._maskBottom = document.createElement('div');
-        this._maskBottom.id = 'accessiflow-mask-bottom';
-        this._maskBottom.setAttribute('aria-hidden', 'true');
-        this._maskBottom.style.cssText = baseStyle + 'bottom:0;height:40%;';
-        document.body.appendChild(this._maskTop);
-        document.body.appendChild(this._maskBottom);
+        if (this._maskLens) return;
+        const s = settings || {};
+        const Overlay = window.AccessiFlowOverlay;
+        if (!Overlay) { this._warn('overlay primitive not loaded'); return; }
+
+        this._maskMode = s.maskMode || 'line';
+        this._maskDim = s.maskDim === undefined ? 0.75 : s.maskDim;
+        this._maskTint = s.maskTint === 'warm' ? '40, 24, 8'
+          : s.maskTint === 'cool' ? '8, 20, 40'
+            : '0, 0, 0';
+        this._maskLocked = false;
+
+        this._maskLens = new Overlay({ id: 'accessiflow-reading-lens', padding: 4 });
+        this._maskLens.cutout({ dim: this._maskDim, tint: this._maskTint, radius: 5 });
 
         this._maskHandler = (e) => {
-          const y = e.clientY;
-          const h = window.innerHeight;
-          const stripH = 60;
-          this._maskTop.style.height = Math.max(0, y - stripH / 2) + 'px';
-          this._maskBottom.style.height = Math.max(0, h - y - stripH / 2) + 'px';
+          if (this._maskLocked) return;
+          const rect = this._lineRectAt(e.clientX, e.clientY);
+          if (rect) this._maskLens.followRect(rect);
+          else this._maskLens.followRect(this._fallbackBand(e.clientY));
         };
-        document.addEventListener('mousemove', this._maskHandler);
+
+        // A lock, so the pointer can leave the text without the lens
+        // following it off to a scrollbar or a menu.
+        this._maskKeyHandler = (e) => {
+          if (!e.altKey || !e.shiftKey) return;
+          // K, for keep. L was the obvious letter and is already landmark
+          // navigation in BlindModule; this handler runs in the capture phase,
+          // so sharing the key would have silently disabled landmarks.
+          if (e.code !== 'KeyK') return;
+          e.preventDefault();
+          e.stopPropagation();
+          this._maskLocked = !this._maskLocked;
+          this._announceMask(this._maskLocked
+            ? 'Reading lens locked in place.'
+            : 'Reading lens following the pointer again.');
+        };
+
+        document.addEventListener('mousemove', this._maskHandler, { passive: true });
+        document.addEventListener('keydown', this._maskKeyHandler, true);
+
+        // Show something immediately rather than waiting for the first move,
+        // or switching the setting on appears to do nothing.
+        this._maskLens.followRect(this._fallbackBand(window.innerHeight / 2));
       } else {
-        if (this._maskTop) { this._maskTop.remove(); this._maskTop = null; }
-        if (this._maskBottom) { this._maskBottom.remove(); this._maskBottom = null; }
-        if (this._maskHandler) { document.removeEventListener('mousemove', this._maskHandler); this._maskHandler = null; }
+        if (this._maskHandler) {
+          document.removeEventListener('mousemove', this._maskHandler);
+          this._maskHandler = null;
+        }
+        if (this._maskKeyHandler) {
+          document.removeEventListener('keydown', this._maskKeyHandler, true);
+          this._maskKeyHandler = null;
+        }
+        if (this._maskLens) { this._maskLens.destroy(); this._maskLens = null; }
+        this._maskLocked = false;
       }
     } catch (e) { this._warn('applyReadingMask: ' + e.message); }
+  }
+
+  _announceMask(message) {
+    try {
+      const region = document.getElementById('accessiflow-shortcut-announce');
+      if (region) region.textContent = message;
+    } catch (e) { /* skip */ }
+  }
+
+  /** A plain horizontal strip, for when there is no text under the pointer. */
+  _fallbackBand(y) {
+    const height = 64;
+    return { top: y - height / 2, left: 0, width: window.innerWidth, height: height };
+  }
+
+  /**
+   * The rectangle of the line, sentence or paragraph under a point.
+   *
+   * caretRangeFromPoint gives the exact text position; expanding that range
+   * and asking for its client rects gives the real geometry of the line box,
+   * including its true height for the font in use.
+   */
+  _lineRectAt(x, y) {
+    try {
+      const caret = this._caretAt(x, y);
+      if (!caret || !caret.node || caret.node.nodeType !== 3) return null;
+
+      const text = caret.node.nodeValue || '';
+      if (!text.trim()) return null;
+
+      // Ignore text inside our own furniture.
+      const owner = caret.node.parentElement;
+      if (!owner || (owner.closest && owner.closest('[id^="accessiflow-"]'))) return null;
+
+      if (this._maskMode === 'paragraph') {
+        const block = owner.closest('p, li, dd, blockquote, h1, h2, h3, h4, h5, h6, td, div');
+        if (!block) return null;
+        const rect = block.getBoundingClientRect();
+        return rect.height > 0 ? rect : null;
+      }
+
+      const range = document.createRange();
+      if (this._maskMode === 'sentence') {
+        const bounds = this._sentenceBounds(text, caret.offset);
+        range.setStart(caret.node, bounds.start);
+        range.setEnd(caret.node, bounds.end);
+      } else {
+        range.setStart(caret.node, 0);
+        range.setEnd(caret.node, text.length);
+      }
+
+      // A range spanning several visual lines reports one rect per line.
+      // The one containing the pointer is the line being read.
+      const rects = range.getClientRects();
+      if (!rects || !rects.length) return null;
+
+      let best = null;
+      for (let i = 0; i < rects.length; i++) {
+        const r = rects[i];
+        if (r.width === 0 || r.height === 0) continue;
+        if (y >= r.top - 2 && y <= r.bottom + 2) { best = r; break; }
+        if (!best || Math.abs(y - (r.top + r.height / 2)) <
+          Math.abs(y - (best.top + best.height / 2))) best = r;
+      }
+      if (!best) return null;
+
+      // In sentence mode a sentence wrapping across lines should show whole,
+      // so the rects are merged rather than one line picked out of them.
+      if (this._maskMode === 'sentence' && rects.length > 1) {
+        let top = Infinity, bottom = -Infinity, left = Infinity, right = -Infinity;
+        for (let i = 0; i < rects.length; i++) {
+          const r = rects[i];
+          if (r.width === 0 || r.height === 0) continue;
+          top = Math.min(top, r.top); bottom = Math.max(bottom, r.bottom);
+          left = Math.min(left, r.left); right = Math.max(right, r.right);
+        }
+        if (top < bottom) {
+          return { top: top, left: left, width: right - left, height: bottom - top };
+        }
+      }
+
+      return best;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** caretRangeFromPoint, or the standards-track equivalent. */
+  _caretAt(x, y) {
+    if (typeof document.caretRangeFromPoint === 'function') {
+      const range = document.caretRangeFromPoint(x, y);
+      return range ? { node: range.startContainer, offset: range.startOffset } : null;
+    }
+    if (typeof document.caretPositionFromPoint === 'function') {
+      const position = document.caretPositionFromPoint(x, y);
+      return position ? { node: position.offsetNode, offset: position.offset } : null;
+    }
+    return null;
+  }
+
+  /**
+   * Where the sentence around an offset starts and ends.
+   *
+   * The Bangla danda counts as a full stop, so this works on the Bangla pages
+   * the extension is partly built for rather than treating a whole paragraph
+   * as one sentence.
+   */
+  _sentenceBounds(text, offset) {
+    const TERMINATORS = '.!?।৷';
+    let start = 0;
+    for (let i = Math.min(offset, text.length) - 1; i >= 0; i--) {
+      if (TERMINATORS.indexOf(text[i]) !== -1) { start = i + 1; break; }
+    }
+    let end = text.length;
+    for (let i = offset; i < text.length; i++) {
+      if (TERMINATORS.indexOf(text[i]) !== -1) { end = i + 1; break; }
+    }
+    while (start < end && /\s/.test(text[start])) start++;
+    return { start: start, end: end };
   }
 
   // ── 2. Line ruler ────────────────────────────────────────
@@ -447,8 +615,8 @@ class CognitiveModule {
     try {
       const css = this.buildCSS(settings);
       this._getStyle().textContent = css;
-      this.applyReadingMask(!!settings.readingMask);
-      this.applyLineRuler(!!settings.lineRuler);
+      this.applyReadingMask(!!settings.readingMask, settings);
+      this.applyLineRuler(!!settings.lineRuler && !settings.readingMask);
       this.applySimplifyPage(!!settings.simplifyPage);
       this.applyAltTextTooltips(!!settings.altTextTooltips);
       this.applyPauseMedia(!!settings.pauseMedia);

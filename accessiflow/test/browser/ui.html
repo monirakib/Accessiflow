@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AccessiFlow overlay check</title>
+  <!-- A deliberately unfriendly page. Real sites restyle divs, paragraphs and
+       buttons wholesale, and AccessiFlow's overlays have to survive that. -->
+  <style>
+    body { background: #ffffff; margin: 0; }
+    div { padding: 40px; font-size: 8px; opacity: 0.9; }
+    p { color: #eeeeee; font-size: 9px; margin: 30px; }
+    button { display: none; background: red; }
+    * { transition: all 2s; }
+  </style>
+  <link rel="stylesheet" href="/content.css">
+</head>
+<body>
+  <main><p>Some article text on a white page.</p></main>
+  <script src="/test/browser/ui-stub.js"></script>
+  <script src="/modules/hearing.js"></script>
+  <script src="/test/browser/ui.js"></script>
+</body>
+</html>

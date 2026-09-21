@@ -69,6 +69,170 @@ check(byId('chart').alt === 'Election Commission notice listing National ID card
 check(!byId('captcha-image').hasAttribute('alt'),
   'turning everything off still removes the placeholders it added elsewhere');
 
+// ── Dictating into a form ───────────────────────────────────────────────────
+// The old version replaced the whole field with each utterance, stopped after
+// one phrase, and wrote half-recognised words into the form. Each of those is
+// checked here, because each one made it useless for the people it is for.
+{
+  const page = new JSDOM(`<!DOCTYPE html><html lang="en"><body>
+    <input id="name" type="text" value="Monir ">
+    <textarea id="notes"></textarea>
+    <input id="secret" type="password">
+  </body></html>`, { url: 'https://forms.gov/', runScripts: 'outside-only' });
+  const win = page.window;
+  const doc = win.document;
+
+  // A fake recogniser, so the test needs no microphone and no network.
+  const started = [];
+  let live = null;
+  win.SpeechRecognition = function () {
+    this.continuous = false;
+    this.interimResults = false;
+    this.lang = '';
+    this.start = () => { started.push(this.lang); live = this; };
+    this.stop = () => { if (this.onend) this.onend(); };
+  };
+  // The module attaches itself to a window, so it is loaded inside this page
+  // rather than required: that is how the browser loads it too.
+  win.eval(fs.readFileSync(path.join(ROOT, 'modules/speech.js'), 'utf8'));
+  const speech = new win.SpeechModule();
+  speech._log = () => {};
+  speech._warn = () => {};
+
+  speech.applySpeechToText(true, { dictationLanguage: 'en-US' });
+  check(Boolean(doc.getElementById('accessiflow-dictation')),
+    'a dictation bar appears, so what is being heard is not typed into the form');
+
+  doc.getElementById('name').focus();
+  speech.startDictation();
+  check(started.length === 1 && started[0] === 'en-US',
+    'it listens in the language chosen: ' + started.join(', '));
+  check(live.continuous === true,
+    'it keeps listening, rather than stopping after one phrase');
+
+  // Speaking adds to what is already there, at the cursor.
+  const say = (text, isFinal) => live.onresult({
+    resultIndex: 0,
+    results: [Object.assign([{ transcript: text }], { isFinal: isFinal !== false, length: 1 })]
+  });
+
+  say('Rakib');
+  check(doc.getElementById('name').value === 'Monir Rakib',
+    'dictated words join what was already typed: "' + doc.getElementById('name').value + '"');
+
+  say('full stop');
+  check(doc.getElementById('name').value === 'Monir Rakib.',
+    'a spoken full stop becomes punctuation, not the word: "' + doc.getElementById('name').value + '"');
+
+  say('delete that');
+  check(doc.getElementById('name').value === 'Monir Rakib',
+    '"delete that" takes back the last thing said: "' + doc.getElementById('name').value + '"');
+
+  // Half-heard words stay out of the form.
+  const before = doc.getElementById('name').value;
+  say('Rak', false);
+  check(doc.getElementById('name').value === before,
+    'words still being recognised never reach the field');
+  check(/Rak/.test(doc.getElementById('accessiflow-dictation-status').textContent),
+    'they are shown in the bar instead');
+
+  say('stop dictation');
+  check(speech._dictation.listening === false, '"stop dictation" stops it');
+
+  // Turning the setting off puts the page back.
+  speech.applySpeechToText(false);
+  check(!doc.getElementById('accessiflow-dictation'), 'turning it off removes the bar');
+}
+
+// ── What gets said about one element ────────────────────────────────
+// Pointing at a button has to say the button, not the card it sits in, and a
+// control has to say what it is and what state it is in. This is the whole
+// feature, so it is checked against the markup real pages use.
+{
+  const naming = require(path.join(ROOT, 'modules/naming.js'));
+  const page = new JSDOM(`<!DOCTYPE html><html lang="en"><body>
+    <div class="card"><button id="save">Save changes</button></div>
+    <a id="home" href="/">Home</a>
+    <label for="email">Email address</label><input id="email" type="email">
+    <input id="filled" type="text" aria-label="Search" value="fees">
+    <input id="agree" type="checkbox" checked aria-label="Accept terms">
+    <button id="menu" aria-expanded="false">Menu</button>
+    <button id="off" disabled>Delete</button>
+    <h2 id="title">Fees</h2>
+    <img id="photo" src="/p.jpg" alt="Voters queueing">
+    <img id="spacer" src="/s.gif" alt="">
+    <a id="icononly" href="/x"><img src="/i.png" alt="Print this page"></a>
+    <button id="nameless"><span></span></button>
+    <p id="para">Fees are due by September.</p>
+    <div id="accessiflow-shortcut-announce">our own furniture</div>
+  </body></html>`).window.document;
+  const say = id => naming.describeElement(page.getElementById(id));
+
+  check(say('save') === 'Save changes, button', 'a button: ' + say('save'));
+  check(say('home') === 'Home, link', 'a link: ' + say('home'));
+  check(say('email') === 'Email address, edit, blank',
+    'an empty box says so, rather than going quiet: ' + say('email'));
+  check(say('filled') === 'Search, edit, fees', 'a box with something in it: ' + say('filled'));
+  check(say('agree') === 'Accept terms, check box, checked', 'a ticked box: ' + say('agree'));
+  check(say('menu') === 'Menu, button, collapsed', 'a menu that is shut: ' + say('menu'));
+  check(/unavailable/.test(say('off')), 'a button you cannot press: ' + say('off'));
+  check(say('title') === 'Fees, heading level 2', 'a heading says its level: ' + say('title'));
+  check(say('photo') === 'Voters queueing, graphic', 'a picture: ' + say('photo'));
+  check(say('icononly') === 'Print this page, link',
+    'an icon-only link is named by its picture: ' + say('icononly'));
+  check(say('nameless') === 'unlabelled button',
+    'a control with no name says so, because that is a fault worth hearing: ' + say('nameless'));
+  check(say('para') === 'Fees are due by September.', 'plain text is just read');
+  check(say('spacer') === '', 'a picture marked decorative stays silent');
+  check(say('accessiflow-shortcut-announce') === '',
+    'AccessiFlow never announces its own furniture back at the user');
+
+  // Pointing lands on the word inside the button, not the button.
+  const inside = page.getElementById('save').firstChild;
+  check(naming.describeElement(inside) === 'Save changes, button',
+    'pointing at the text inside a button announces the button');
+
+  // aria-labelledby wins over the text, the way a screen reader reads it.
+  const aria = new JSDOM(`<!DOCTYPE html><body>
+    <span id="lbl">Postcode</span>
+    <input id="pc" aria-labelledby="lbl" aria-label="ignored">
+  </body>`).window.document;
+  check(naming.accessibleName(aria.getElementById('pc')) === 'Postcode',
+    'aria-labelledby is preferred over aria-label');
+}
+
+// ── The manifest itself ───────────────────────────────────────────
+// Chrome shows an error for any key it does not recognise, and JSON has no
+// comments to explain a setting in, which is how one got in here.
+{
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
+  const allowed = ['manifest_version', 'name', 'version', 'description', 'permissions',
+    'host_permissions', 'action', 'icons', 'content_scripts', 'background',
+    'content_security_policy', 'commands', 'web_accessible_resources', 'options_page',
+    'default_locale', 'minimum_chrome_version', 'offline_enabled', 'short_name', 'author'];
+  const unknown = Object.keys(manifest).filter(key => allowed.indexOf(key) === -1);
+  check(unknown.length === 0, 'every manifest key is one Chrome knows: ' + (unknown.join(', ') || 'yes'));
+
+  // Every file the manifest points at has to exist, or the extension will
+  // not load at all on somebody else's computer.
+  const referenced = []
+    .concat(Object.values(manifest.icons || {}))
+    .concat(Object.values((manifest.action || {}).default_icon || {}))
+    .concat([manifest.action && manifest.action.default_popup, manifest.background.service_worker])
+    .concat((manifest.content_scripts || []).reduce((all, cs) =>
+      all.concat(cs.js || [], cs.css || []), []))
+    .filter(Boolean);
+  const missing = referenced.filter(file => !fs.existsSync(path.join(ROOT, file)));
+  check(missing.length === 0, 'every file the manifest names exists: ' + (missing.join(', ') || 'yes'));
+
+  // The speech engines are WebAssembly, so extension pages must be allowed to
+  // run it; without this the offscreen document fails silently.
+  const csp = (manifest.content_security_policy || {}).extension_pages || '';
+  check(/wasm-unsafe-eval/.test(csp), 'extension pages may run the speech engines: ' + csp);
+  check((manifest.permissions || []).indexOf('offscreen') > -1,
+    'the offscreen document is permitted, which is where speech happens');
+}
+
 // ── The natural Bangla voice ──────────────────────────────────────
 // The model turns phonemes into sound, so what goes in has to be exactly the
 // scheme it was trained on, and what comes out has to be a file a browser can

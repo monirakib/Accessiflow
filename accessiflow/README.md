@@ -81,6 +81,61 @@ and covers both the vision model (alt text) and the text model (summaries, link
 names) through one endpoint. Model IDs sit in `wrangler.toml` under `[vars]`, so
 swapping a model that has gone cold takes a redeploy and no code change.
 
+### Dictating into forms
+
+*Dictate into boxes*, in **Speaking and typing**, fills in forms by voice.
+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> starts and stops it, and switches
+the feature on if it was off, because a shortcut that answers with silence
+teaches nobody anything. The Hand movement profile turns it on.
+
+It replaces an earlier version that could not be used for a form, and the
+reasons are worth keeping:
+
+- **It replaced the whole field with each utterance.** Anything already typed
+  was wiped, and every sentence erased the one before it. Words now go in at
+  the cursor.
+- **It stopped after one phrase.** A paragraph meant clicking a 28-pixel mic
+  over and over — the exact difficulty being worked around. Recognition is
+  continuous now, and restarts itself when Chrome pauses it.
+- **Half-recognised words went into the field.** A form that appears to
+  corrupt itself is worse than no dictation for someone who cannot easily undo
+  it, so interim results go to a bar and only final text reaches the form.
+
+Dictation starts from the end of what is already in the box. Chrome selects a
+field's entire contents when you Tab into it, so honouring the selection would
+delete the user's text — the original bug, reintroduced by being careful about
+cursors. Clicking inside the text afterwards still inserts there.
+
+Spoken commands: "full stop", "comma", "question mark", "new line", "new
+paragraph", "delete that", "stop dictation", and দাঁড়ি for the Bangla full
+stop. The language follows the page unless it is set, so a Bangla form is
+recognised as Bangla. Password boxes are never dictated into.
+
+### Reading what you point at
+
+*Read what I point at* and *Read what I tab to*, in **Having pages read aloud**,
+say what a thing is as you reach it: "Save changes, button", "Email address,
+edit, blank", "Accept terms, check box, checked". The Screen reader profile
+(Alt+Shift+2) turns both on.
+
+The work is in [modules/naming.js](modules/naming.js), and it is not the same
+as reading an element's text. A name is not text: aria-labelledby wins over
+aria-label, which wins over a label, an alt or the content, and an icon-only
+link is named by its picture. The role and state matter as much — an empty box
+says "blank" rather than going quiet, because silence there is
+indistinguishable from a control that failed to read, and a control with no
+name at all is announced as "unlabelled button" because that is a fault on the
+page the user needs to know about.
+
+Pointing climbs to the nearest thing worth announcing: at a word inside a
+button it means the button. Pointing waits 400ms by default (adjustable)
+because crossing the page on the way somewhere else would otherwise fire an
+announcement per element, and the same element is never announced twice in a
+row. Focus is read at once, since tabbing is deliberate.
+
+It speaks through the same engine as everything else, so on a Bangla page the
+labels come out in the Bangla voice.
+
 ### A Bangla voice people can actually follow
 
 eSpeak always works and always sounds like a machine; testers could not follow
@@ -290,7 +345,7 @@ the clinical term kept in the search keywords so both audiences find it.
 
 ```bash
 cd server && npm install && npm test   # 19 checks on the proxy
-cd test   && npm install && npm test   # 45 popup, 22 module, 26 content-script checks
+cd test   && npm install && npm test   # 45 popup, 59 module, 35 content-script checks
 ```
 
 The Worker suite covers token forgery, payload tampering, expiry, origin
