@@ -1,0 +1,105 @@
+{
+  "manifest_version": 3,
+  "name": "AccessiFlow: WCAG 2.2 Accessibility Suite",
+  "version": "2.0.0",
+  "description": "Make any website easier to see, read, hear and use. Built for people with disabilities, following WCAG 2.2 AA and AAA.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "offscreen",
+    "tabCapture"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "https://accessiflow-ai.accessiflow-ai.workers.dev/*",
+    "https://huggingface.co/*",
+    "https://cdn-lfs.huggingface.co/*",
+    "https://cdn-lfs-us-1.huggingface.co/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AccessiFlow accessibility settings",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "modules/color.js",
+        "modules/overlay.js",
+        "modules/ai-config.js",
+        "modules/ai-cache.js",
+        "modules/profiles.js",
+        "modules/naming.js",
+        "modules/blind.js",
+        "modules/vision.js",
+        "modules/contrast.js",
+        "modules/focus-lock.js",
+        "modules/motor.js",
+        "modules/cognitive.js",
+        "modules/hearing.js",
+        "modules/page-bridge.js",
+        "modules/seizure.js",
+        "modules/speech.js",
+        "modules/neuro.js",
+        "modules/bangla.js",
+        "modules/audit.js",
+        "modules/forms.js",
+        "modules/ai.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+Q"
+      },
+      "description": "Open AccessiFlow"
+    },
+    "toggle-accessiflow": {
+      "suggested_key": {
+        "default": "Alt+Shift+A"
+      },
+      "description": "Turn AccessiFlow on or off for this page"
+    },
+    "toggle-captions": {
+      "suggested_key": {
+        "default": "Alt+Shift+W"
+      },
+      "description": "Start or stop live captions for this tab"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "page-hook.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

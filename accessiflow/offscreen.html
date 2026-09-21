@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AccessiFlow speech</title>
+</head>
+<body>
+  <!--
+    Never seen by anyone. A content script cannot run WebAssembly on sites with
+    a strict content security policy, and audio it starts dies with the page.
+    This document belongs to the extension, so neither limit applies: it
+    synthesises speech for languages the computer has no voice for, and plays
+    it (offscreen.js), and it captures a tab's sound for live captions
+    (captions.js).
+
+    This page is why manifest.json declares wasm-unsafe-eval for extension
+    pages: the speech engines below are WebAssembly. Nothing is fetched as
+    code: every engine ships inside the extension, and the only things
+    downloaded at runtime are the neural voice's and Whisper's weights, which
+    are data.
+  -->
+  <script src="vendor/espeak/espeak-ng.js"></script>
+  <script src="vendor/onnx/ort.wasm.min.js"></script>
+  <script src="piper.js"></script>
+  <script src="offscreen.js"></script>
+  <!-- Live captions: tab capture and Whisper. A module, because the caption
+       engine imports transformers.js, which is only published as one. The
+       DSP layer is loaded by the engine itself. -->
+  <script type="module" src="captions.js"></script>
+</body>
+</html>

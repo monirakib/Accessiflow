@@ -1,0 +1,33 @@
+name = "accessiflow-ai"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+# ── Non-secret configuration ─────────────────────────────────────────────
+# Secrets (HF_TOKEN, TOKEN_SIGNING_KEY) are NEVER put here. Set them with
+# `wrangler secret put` so they stay encrypted at rest. See README.md.
+[vars]
+# Warm image-text-to-text model used for alt text.
+VISION_MODEL = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
+# Text model used for page summaries and link labels.
+TEXT_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+
+# Comma-separated Chrome extension IDs allowed to call this Worker.
+# Leave empty during development to accept any origin; fill it in before you
+# publish, using the ID shown on chrome://extensions.
+ALLOWED_EXTENSION_IDS = ""
+
+# Quotas. GLOBAL_DAILY is the one that actually protects your HF budget.
+PER_INSTALL_HOURLY = "60"
+PER_IP_REGISTRATIONS_DAILY = "25"
+GLOBAL_DAILY = "4000"
+
+# ── Rate-limit counters ──────────────────────────────────────────────────
+# Create the namespace first:  wrangler kv namespace create RATE_LIMIT
+# then paste the returned id below. Without this binding the Worker still
+# runs but enforces no quotas, which is fine locally and unsafe in production.
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "47ccf17be76740a6b31e6149ce9e5356"
+
+[observability]
+enabled = true

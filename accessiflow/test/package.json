@@ -1,0 +1,13 @@
+{
+  "name": "accessiflow-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runs the AccessiFlow content scripts and popup under jsdom and asserts their behaviour.",
+  "scripts": {
+    "test": "node color.test.js && node contrast.test.js && node focus-lock.test.js && node motor.test.js && node motion.test.js && node audio.test.js && node captions.test.js && node ai-cache.test.js && node phase2.test.js && node popup.test.js && node modules.test.js && node content.test.js",
+    "test:browser": "cd browser && node run.js && node extension.js"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}
