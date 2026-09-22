@@ -503,6 +503,7 @@ main::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 }
 .row:last-child { border-bottom: 0; }
 .row[hidden] { display: none; }
+.section-actions .btn.search-miss { display: none; }
 
 /* Dimmed, not hidden: a setting that depends on another stays discoverable
    so the relationship between the two is learnable. */

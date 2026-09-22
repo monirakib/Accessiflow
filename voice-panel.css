@@ -1,0 +1,156 @@
+/* AccessiFlow voice control panel. The same palette as the popup. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0c0e14;
+  --surface: #141822;
+  --surface-2: #1b2029;
+  --border: #2c3340;
+  --border-strong: #454f63;
+  --text: #eef1f7;
+  --text-2: #aab3c4;
+  --accent: #4ee0c0;
+  --accent-text: #05221d;
+  --accent-soft: rgba(78, 224, 192, 0.14);
+  --focus: #ffd166;
+  --danger: #ff9b91;
+  --warn: #f5c451;
+  --radius: 12px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f3f6fb;
+    --surface: #ffffff;
+    --surface-2: #eff3fa;
+    --border: #d3dae9;
+    --border-strong: #a9b4ca;
+    --text: #0f1420;
+    --text-2: #4b5567;
+    --accent: #0a6c60;
+    --accent-text: #ffffff;
+    --accent-soft: rgba(10, 108, 96, 0.10);
+    --focus: #0f46d2;
+    --danger: #a51f14;
+    --warn: #8a5a00;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+main { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+main[hidden] { display: none; }
+
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.btn {
+  font: 600 14px/1 system-ui, sans-serif;
+  min-height: 44px; padding: 0 16px;
+  border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2); color: var(--text);
+}
+.btn-primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.btn-quiet { background: transparent; }
+.btn:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.btn[hidden] { display: none; }
+
+/* ── Listening state ─────────────────────────────────────── */
+
+.state {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px;
+}
+.mic {
+  flex: none; width: 52px; height: 52px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--surface-2); color: var(--text-2);
+  border: 2px solid var(--border-strong);
+}
+.mic[data-state="listening"] { color: var(--accent-text); background: var(--accent); border-color: var(--accent); }
+.mic[data-state="hearing"] { color: var(--accent-text); background: var(--accent); border-color: var(--accent);
+  box-shadow: 0 0 0 6px var(--accent-soft); }
+.mic[data-state="asleep"] { color: var(--warn); border-color: var(--warn); }
+.mic[data-state="error"] { color: var(--danger); border-color: var(--danger); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .mic[data-state="hearing"] { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 10px var(--accent-soft); } }
+}
+
+.state-label { margin: 0; font-weight: 700; font-size: 16px; }
+.state-hint { margin: 2px 0 0; color: var(--text-2); font-size: 13px; }
+.state-hint:empty { display: none; }
+.chip {
+  display: inline-block; margin: 6px 0 0; padding: 3px 9px; border-radius: 999px;
+  background: #0b57d0; color: #fff; font-size: 12px; font-weight: 600;
+}
+.chip[hidden] { display: none; }
+
+.setup {
+  background: var(--surface); border: 2px solid var(--warn);
+  border-radius: var(--radius); padding: 12px;
+}
+.setup p { margin: 0 0 10px; }
+.setup[hidden] { display: none; }
+
+/* ── What was heard ──────────────────────────────────────── */
+
+.hearing { margin: 0; min-height: 1.45em; color: var(--text-2); font-style: italic; }
+.reply { margin: 0; font-weight: 600; font-size: 16px; min-height: 1.45em; }
+.reply[data-ok="false"] { color: var(--danger); }
+
+.confirm {
+  background: var(--surface); border: 2px solid var(--accent);
+  border-radius: var(--radius); padding: 12px; margin-top: 8px;
+}
+.confirm p { margin: 0 0 10px; font-weight: 600; }
+.confirm-buttons { display: flex; gap: 8px; }
+.confirm[hidden] { display: none; }
+
+.log { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.log li {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 9px; padding: 7px 10px; font-size: 13px;
+}
+.log .said { color: var(--text-2); }
+.log .did { display: block; }
+.log .failed .did { color: var(--danger); }
+
+/* ── Help ────────────────────────────────────────────────── */
+
+.help { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.help[data-flash="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.help h3 { font-size: 13px; margin: 12px 0 4px; color: var(--accent); }
+.help h3:first-child { margin-top: 0; }
+.help dl { margin: 0; }
+.help dt { font-weight: 700; margin-top: 6px; }
+.help dt::before { content: "\201C"; color: var(--text-2); }
+.help dt::after { content: "\201D"; color: var(--text-2); }
+.help dd { margin: 0; color: var(--text-2); font-size: 13px; }
+
+.foot { color: var(--text-2); font-size: 12px; }
+.foot .toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); min-height: 44px; }
+.foot .toggle input { width: 20px; height: 20px; }
+.privacy { margin: 6px 0 0; }
+
+/* The one-off page that asks for the microphone. */
+#setupPage { max-width: 520px; margin: 10vh auto; font-size: 18px; }
+#setupPage h1 { font-size: 26px; }

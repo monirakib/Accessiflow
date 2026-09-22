@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AccessiFlow voice control</title>
+  <link rel="stylesheet" href="voice-panel.css">
+</head>
+<body>
+  <!--
+    Voice control. Docked beside the site in Chrome's side panel, it listens,
+    turns what it hears into a command (voice-commands.js) and runs it on the
+    tab next to it (modules/voice-nav.js) or on the browser's tabs.
+
+    It has to be a visible extension page. Chrome refuses speech recognition
+    in the hidden offscreen document, and a listener inside each site would
+    ask for the microphone on every site, which someone who cannot use their
+    hands cannot answer. Here the microphone is allowed once, for AccessiFlow.
+
+    Opened with ?setup=1 in an ordinary tab, it is the page that asks for the
+    microphone, because a side panel cannot show Chrome's permission prompt.
+  -->
+  <main id="panel">
+    <header class="top">
+      <h1>Voice control</h1>
+      <button type="button" id="btnPause" class="btn btn-quiet" hidden>Microphone off</button>
+    </header>
+
+    <section class="state" aria-labelledby="stateLabel">
+      <div class="mic" id="mic" data-state="off" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"/></svg>
+      </div>
+      <div>
+        <p class="state-label" id="stateLabel">Starting…</p>
+        <p class="state-hint" id="stateHint"></p>
+        <p class="chip" id="numbersChip" hidden>Numbers on &middot; say &ldquo;no numbers&rdquo; to turn off</p>
+      </div>
+    </section>
+
+    <div class="setup" id="setup" hidden>
+      <p id="setupText">AccessiFlow needs your microphone to hear commands. This is asked once, for every site.</p>
+      <button type="button" id="btnAllow" class="btn btn-primary">Allow the microphone</button>
+    </div>
+
+    <section class="heard" aria-labelledby="heardTitle">
+      <h2 id="heardTitle" class="sr-only">What was heard</h2>
+      <p class="hearing" id="hearing" aria-hidden="true"></p>
+      <!-- The result of each command, read out by a screen reader. -->
+      <p class="reply" id="reply" role="status" aria-live="polite"></p>
+      <div class="confirm" id="confirm" hidden>
+        <p id="confirmText"></p>
+        <div class="confirm-buttons">
+          <button type="button" id="btnYes" class="btn btn-primary">Yes</button>
+          <button type="button" id="btnNo" class="btn btn-quiet">No</button>
+        </div>
+      </div>
+      <ol class="log" id="log" aria-label="Recent commands"></ol>
+    </section>
+
+    <section class="help" aria-labelledby="helpTitle">
+      <h2 id="helpTitle">What you can say</h2>
+      <div id="helpList"></div>
+    </section>
+
+    <footer class="foot">
+      <label class="toggle"><input type="checkbox" id="optSound" checked> A sound after each command</label>
+      <p class="privacy">What you say is recognised by Google's speech service, the one Chrome uses for voice
+        typing. Paused, it still listens, but only for &ldquo;resume&rdquo;. The Microphone off button, or closing
+        this panel, turns the microphone off completely.</p>
+    </footer>
+  </main>
+
+  <main id="setupPage" hidden>
+    <h1>Allow the microphone</h1>
+    <p id="setupPageText">Chrome is about to ask whether AccessiFlow can use the microphone. Choose Allow.</p>
+  </main>
+
+  <script src="voice-commands.js"></script>
+  <script src="voice-panel.js"></script>
+</body>
+</html>

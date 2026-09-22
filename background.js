@@ -355,6 +355,38 @@ async function ensureOffscreen() {
   return offscreenReady;
 }
 
+/**
+ * Speaks with chrome.tts and replies once it has finished, been cut off, or
+ * failed, so the page's queue can move on either way. A time limit too,
+ * because a worker restarted mid-sentence never hears the end event.
+ */
+function speakSystem(message) {
+  return new Promise(resolve => {
+    if (!chrome.tts) { resolve({ success: false, error: 'no tts' }); return; }
+    let done = false;
+    const finish = reply => { if (!done) { done = true; clearTimeout(guard); resolve(reply); } };
+    const text = String(message.text || '');
+    const guard = setTimeout(() => finish({ success: true, finished: false }), Math.min(60000, 3000 + text.length * 120));
+    try {
+      chrome.tts.speak(text, {
+        lang: message.lang || undefined,
+        rate: Math.max(0.1, Math.min(10, Number(message.rate) || 1)),
+        pitch: Math.max(0, Math.min(2, Number(message.pitch) || 1)),
+        enqueue: false,
+        onEvent: event => {
+          if (event.type === 'end') finish({ success: true, finished: true });
+          else if (event.type === 'interrupted' || event.type === 'cancelled') finish({ success: true, finished: false });
+          else if (event.type === 'error') finish({ success: false, error: event.errorMessage || 'tts error' });
+        }
+      }, () => {
+        if (chrome.runtime.lastError) finish({ success: false, error: chrome.runtime.lastError.message });
+      });
+    } catch (e) {
+      finish({ success: false, error: e.message });
+    }
+  });
+}
+
 async function relayToOffscreen(message) {
   await ensureOffscreen();
   return chrome.runtime.sendMessage(Object.assign({ target: 'offscreen' }, message));
@@ -415,6 +447,65 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         warn(message.action + ' failed: ' + err.message);
         sendResponse({ success: false, error: err.message, code: err.code || 'unknown' });
       });
+    return true;
+  }
+
+  // ── The screen reader's reach into frames ──
+  // Its lines, keys and focus pass between the frames of one tab through here,
+  // addressed by frame id, so the page's own scripts never see them.
+  if (message.action === 'srWhoAmI') {
+    sendResponse({ frameId: sender.frameId });
+    return;
+  }
+  if (message.action === 'srRelay') {
+    const tabId = sender.tab && sender.tab.id;
+    if (tabId === undefined || typeof message.to !== 'number') { sendResponse(null); return; }
+    chrome.tabs.sendMessage(tabId, { action: 'srFrame', from: sender.frameId, msg: message.msg },
+      { frameId: message.to }, reply => {
+        void chrome.runtime.lastError;
+        sendResponse(reply === undefined ? null : reply);
+      });
+    return true;
+  }
+  if (message.action === 'srInjectFrames') {
+    const tabId = sender.tab && sender.tab.id;
+    if (tabId === undefined) { sendResponse({ ok: false }); return; }
+    // Every frame at once; the agent only starts in frames from another
+    // site, and the top copy of each file is left as it was.
+    chrome.scripting.executeScript({
+      target: { tabId: tabId, allFrames: true },
+      files: ['modules/naming.js', 'modules/page-actions.js', 'modules/sr-buffer.js',
+        'modules/sr-live.js', 'modules/sr-frame.js']
+    }).then(() => sendResponse({ ok: true }), err => {
+      // Some frames can never be entered (another extension's, the browser's own).
+      warn('srInjectFrames: ' + err.message);
+      sendResponse({ ok: false, error: err.message });
+    });
+    return true;
+  }
+
+  // Speech through the computer's own voices, from here rather than the page.
+  // A page may not speak until the user has pressed a key or clicked in it,
+  // so a blind user arriving on a new page would hear nothing at all, not
+  // even its title, until they happened to press something. chrome.tts has
+  // no such rule.
+  if (message.action === 'speakSystem') {
+    speakSystem(message).then(sendResponse);
+    return true;
+  }
+
+  // Stopping is sent on every key the screen reader handles. If the offscreen
+  // document does not exist, nothing of ours is playing there: say so rather
+  // than creating a whole document just to tell it to be quiet.
+  if (message.action === 'stopOffline' && message.target !== 'offscreen') {
+    try { if (chrome.tts) chrome.tts.stop(); } catch (e) { /* nothing was speaking */ }
+    chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })
+      .then(existing => {
+        if (!existing || !existing.length) return { success: true };
+        return relayToOffscreen(message);
+      })
+      .then(reply => sendResponse(reply || { success: true }))
+      .catch(() => sendResponse({ success: true }));
     return true;
   }
 
@@ -559,7 +650,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ── Keyboard command: toggle the whole extension ──────────────────────────
 
-chrome.commands.onCommand.addListener(command => {
+chrome.commands.onCommand.addListener((command, tab) => {
+  // Voice control lives in the side panel. Chrome only opens it in direct
+  // answer to the user, so it is opened here, synchronously, with the tab the
+  // command came with rather than one looked up afterwards.
+  if (command === 'open-voice-control') {
+    if (chrome.sidePanel && tab && tab.windowId !== undefined) {
+      chrome.sidePanel.open({ windowId: tab.windowId }).catch(e => warn('side panel: ' + e.message));
+    }
+    return;
+  }
+
   // The captions shortcut carries the user gesture tab capture needs, so it
   // works without opening the popup. It toggles.
   if (command === 'toggle-captions') {

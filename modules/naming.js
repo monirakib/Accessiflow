@@ -59,21 +59,36 @@
     return wrapping ? clean(wrapping.textContent) : '';
   }
 
+  /**
+   * The screen reader repairs put a stand-in on anything they could not name
+   * ("Link (no description available)", "[Image - description unavailable]")
+   * and mark it, so the AI can find it later. That stand-in is a note to
+   * ourselves, not a name: read aloud it sounds like one, and hides that
+   * the thing is unlabelled.
+   */
+  function isPlaceholder(el) {
+    return !!el && !!el.getAttribute && (
+      el.getAttribute('data-accessiflow-alt-repaired') === 'placeholder' ||
+      el.getAttribute('data-accessiflow-link-repaired') === 'placeholder' ||
+      el.getAttribute('data-accessiflow-btn-repaired') === 'placeholder');
+  }
+
   /** What this element is called, in the order a screen reader looks. */
   function accessibleName(el) {
     if (!el || !el.getAttribute) return '';
+    const placeholder = isPlaceholder(el);
 
     const labelled = fromIds(el, 'aria-labelledby');
     if (labelled) return labelled;
 
-    const aria = clean(el.getAttribute('aria-label'));
+    const aria = placeholder ? '' : clean(el.getAttribute('aria-label'));
     if (aria) return aria;
 
     const tag = el.tagName;
 
     if (tag === 'IMG') {
       // alt="" is the page saying this picture is decoration, not content.
-      if (el.hasAttribute('alt')) return clean(el.getAttribute('alt'));
+      if (el.hasAttribute('alt') && !placeholder) return clean(el.getAttribute('alt'));
       return clean(el.getAttribute('title'));
     }
 
@@ -93,8 +108,13 @@
 
     // A link or button whose content is only a picture is named by that
     // picture, which is why so many icon buttons are silent without alt text.
-    const img = el.querySelector ? el.querySelector('img[alt]') : null;
-    if (img) return clean(img.getAttribute('alt'));
+    // The first picture that describes itself: a logo link often starts with
+    // a decorative alt="" image before the one that carries the name.
+    const imgs = el.querySelectorAll ? el.querySelectorAll('img[alt]') : [];
+    for (let i = 0; i < imgs.length; i++) {
+      const alt = clean(imgs[i].getAttribute('alt'));
+      if (alt && !isPlaceholder(imgs[i])) return alt;
+    }
 
     return clean(el.getAttribute('title'));
   }
@@ -128,11 +148,17 @@
     if (!el || !el.getAttribute) return '';
     const states = [];
     const tag = el.tagName;
-    const type = (el.getAttribute('type') || '').toLowerCase();
+    // No type attribute is a text box, and the commonest one on real forms.
+    const type = (el.getAttribute('type') || 'text').toLowerCase();
 
     if (el.disabled || el.getAttribute('aria-disabled') === 'true') states.push('unavailable');
 
-    if (tag === 'INPUT' && (type === 'checkbox' || type === 'radio')) {
+    // A check box the page has turned into something else (Wikipedia's menu
+    // is <input type="checkbox" role="button">) is that something else, and
+    // "not checked" would describe a control the user cannot see.
+    const ownRole = (el.getAttribute('role') || '').toLowerCase();
+    const stillACheckBox = !ownRole || /^(checkbox|radio|switch|menuitemcheckbox|menuitemradio)$/.test(ownRole);
+    if (tag === 'INPUT' && (type === 'checkbox' || type === 'radio') && stillACheckBox) {
       states.push(el.checked ? 'checked' : 'not checked');
     } else if (el.hasAttribute('aria-checked')) {
       const value = el.getAttribute('aria-checked');
@@ -201,7 +227,7 @@
     // meaning. Announcing it anyway is exactly the noise they exist to stop.
     const presentational = el.getAttribute && /^(presentation|none)$/.test(el.getAttribute('role') || '');
     if (presentational) return '';
-    if (!name && el.tagName === 'IMG' && el.hasAttribute('alt')) return '';
+    if (!name && el.tagName === 'IMG' && el.hasAttribute('alt') && !isPlaceholder(el)) return '';
 
     if (!name && !role) return '';
     if (!name && role) return 'unlabelled ' + role;
@@ -209,7 +235,7 @@
     return [name, role, state].filter(Boolean).join(', ');
   }
 
-  root.AccessiFlowNaming = { describeElement, accessibleName, roleOf, stateOf, targetFor };
+  root.AccessiFlowNaming = { describeElement, accessibleName, roleOf, stateOf, targetFor, isPlaceholder };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = root.AccessiFlowNaming;

@@ -61,19 +61,31 @@ window.SpeechSynthesisUtterance = function (text) { this.text = text; };
 const listeners = [];
 const store = {};        // what the page saves for this site
 const ownVoice = [];     // what the bundled engine was asked to speak
+const systemVoice = [];  // what went to chrome.tts through the service worker
 let requests = 0;
+const storageListeners = [];
 window.chrome = {
-  storage: { local: {
-    get: (k, cb) => cb({}),
-    set: (o, cb) => { Object.assign(store, o); if (cb) cb(); },
-    remove: (k, cb) => { delete store[k]; if (cb) cb(); }
-  } },
+  storage: {
+    local: {
+      get: (k, cb) => cb({}),
+      set: (o, cb) => {
+        const changes = {};
+        Object.keys(o).forEach(key => { changes[key] = { oldValue: store[key], newValue: o[key] }; });
+        Object.assign(store, o);
+        storageListeners.forEach(fn => fn(changes, 'local'));
+        if (cb) cb();
+      },
+      remove: (k, cb) => { delete store[k]; if (cb) cb(); }
+    },
+    onChanged: { addListener: fn => storageListeners.push(fn) }
+  },
   runtime: {
     lastError: null,
     onMessage: { addListener: fn => listeners.push(fn) },
     sendMessage: (msg, cb) => {
       if (msg.action === 'speakOffline') { ownVoice.push(msg); return cb && cb({ success: true }); }
       if (msg.action === 'stopOffline') return cb && cb({ success: true });
+      if (msg.action === 'speakSystem') { systemVoice.push(msg); return cb && cb({ success: true, finished: true }); }
       if (msg.action === 'aiDescribeImage') {
         requests++;
         return cb && cb({ success: true, text: 'Description number ' + requests });
@@ -108,7 +120,10 @@ for (const f of CONTENT_SCRIPTS) {
     'modules/seizure.js': 'SeizureModule', 'modules/speech.js': 'SpeechModule',
     'modules/neuro.js': 'NeuroModule', 'modules/bangla.js': 'BanglaModule',
     'modules/audit.js': 'AuditModule', 'modules/ai.js': 'AIModule',
-    'modules/overlay.js': 'AccessiFlowOverlay'
+    'modules/overlay.js': 'AccessiFlowOverlay',
+    'modules/keyboard-nav.js': 'AccessiFlowKeyboardNav',
+    'modules/voice-nav.js': 'VoiceNavModule',
+    'modules/screen-reader.js': 'AccessiFlowScreenReader'
   };
   const undefinedClasses = CONTENT_SCRIPTS
     .filter(f => expected[f] && typeof window[expected[f]] !== 'function')
@@ -312,6 +327,83 @@ const press = (key, opts) => doc.dispatchEvent(
   press('8', { altKey: true, shiftKey: true, code: 'Digit8' });
   await settle();
   check(!store['settings_example.gov'], 'Alt+Shift+8 turns everything off and forgets the site');
+
+  // ── The built-in screen reader ───────────────────────────────────────────
+  {
+    const Reader = window.AccessiFlowScreenReader;
+    spoken.length = 0;
+    press('Z', { altKey: true, shiftKey: true, code: 'KeyZ' });
+    await settle();
+    check(Reader.ownsKeys(), 'Alt+Shift+Z turns the screen reader on');
+    check(store.accessiflowScreenReader === true && !(store['settings_example.gov'] || {}).screenReader,
+      'for every website, in its own key, not in this site\'s settings');
+    check(/Screen reader on\./.test(spoken.map(u => u.text).join(' ')),
+      'and it introduces itself in our voice: ' + (spoken[0] && spoken[0].text));
+
+    const settings = await send({ action: 'getSettings' });
+    check(settings.data.screenReader === true, 'the popup is told it is on');
+
+    // Focus was left in a text box by the checks above, which is focus mode.
+    // Leaving it for nowhere has to hand the arrows back to the reader.
+    check(Reader._current.mode === 'focus', 'focus left in a text box means focus mode');
+    doc.activeElement.blur();
+    await settle();
+    check(Reader._current.mode === 'browse', 'and when focus leaves it for nowhere, browse mode is back');
+    const arrow = new window.KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true, cancelable: true });
+    doc.body.dispatchEvent(arrow);
+    check(arrow.defaultPrevented, 'and the arrow keys now read the page instead of scrolling it');
+
+    await send({ action: 'applySettings', data: { textSize: 120 } });
+    check(Reader.ownsKeys(), 'changing some other setting on this site leaves it on');
+
+    // Another tab switched it off.
+    storageListeners.forEach(fn => fn({ accessiflowScreenReader: { oldValue: true, newValue: false } }, 'local'));
+    check(!Reader.ownsKeys(), 'switched off in another tab, it goes off here too');
+    storageListeners.forEach(fn => fn({ accessiflowScreenReader: { oldValue: false, newValue: true } }, 'local'));
+    check(Reader.ownsKeys(), 'and back on the same way');
+
+    spoken.length = 0;
+    press('Z', { altKey: true, shiftKey: true, code: 'KeyZ' });
+    await settle();
+    check(!Reader.ownsKeys() && store.accessiflowScreenReader === false, 'Alt+Shift+Z turns it off again');
+    check(spoken.some(u => u.text === 'Screen reader off.'), 'and says so');
+  }
+
+  // ── Speech before the user has pressed anything on the page ──────────────
+  // Chrome answers speechSynthesis with "not-allowed" until then (measured in
+  // Chrome with raw CDP), so a page just arrived at would be silent.
+  {
+    Object.defineProperty(window.navigator, 'userActivation',
+      { value: { hasBeenActive: false }, configurable: true });
+    spoken.length = 0;
+    systemVoice.length = 0;
+    storageListeners.forEach(fn => fn({ accessiflowScreenReader: { oldValue: false, newValue: true } }, 'local'));
+    await settle();
+    check(systemVoice.length > 0 && spoken.length === 0,
+      'before any key press, speech goes through the computer\'s voices in the extension, not the page: ' +
+      (systemVoice[0] && systemVoice[0].text));
+    check(systemVoice[0] && systemVoice[0].lang === 'en-US', 'in the language of the text');
+    storageListeners.forEach(fn => fn({ accessiflowScreenReader: { oldValue: true, newValue: false } }, 'local'));
+
+    // Activation arrives, but Chrome still refuses one sentence.
+    Object.defineProperty(window.navigator, 'userActivation',
+      { value: { hasBeenActive: true }, configurable: true });
+    const realSpeak = window.speechSynthesis.speak;
+    window.speechSynthesis.speak = u => setTimeout(() => u.onerror && u.onerror({ error: 'not-allowed' }), 0);
+    spoken.length = 0;
+    systemVoice.length = 0;
+    await send({ action: 'applySettings', data: {} });
+    const p = doc.createElement('p');
+    p.textContent = '\u09ac\u09be\u0982\u09b2\u09be\u09a6\u09c7\u09b6 \u09a8\u09bf\u09b0\u09cd\u09ac\u09be\u099a\u09a8 \u0995\u09ae\u09bf\u09b6\u09a8';
+    doc.body.appendChild(p);
+    press('R', { altKey: true, shiftKey: true, code: 'KeyR' });
+    await settle();
+    window.speechSynthesis.speak = realSpeak;
+    p.remove();
+    check(systemVoice.length > 0, 'a "not-allowed" refusal is retried through the extension');
+    check(!/voice installed/.test(spoken.map(u => u.text).join(' ') + systemVoice.map(m => m.text).join(' ')),
+      'and is not mistaken for a missing Bangla voice');
+  }
 
   console.log('\n=== PASS (' + ok.length + ') ===');
   ok.forEach(m => console.log('  + ' + m));

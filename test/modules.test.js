@@ -209,7 +209,7 @@ check(!byId('captcha-image').hasAttribute('alt'),
   const allowed = ['manifest_version', 'name', 'version', 'description', 'permissions',
     'host_permissions', 'action', 'icons', 'content_scripts', 'background',
     'content_security_policy', 'commands', 'web_accessible_resources', 'options_page',
-    'default_locale', 'minimum_chrome_version', 'offline_enabled', 'short_name', 'author'];
+    'default_locale', 'minimum_chrome_version', 'offline_enabled', 'short_name', 'author', 'side_panel'];
   const unknown = Object.keys(manifest).filter(key => allowed.indexOf(key) === -1);
   check(unknown.length === 0, 'every manifest key is one Chrome knows: ' + (unknown.join(', ') || 'yes'));
 
@@ -219,6 +219,7 @@ check(!byId('captcha-image').hasAttribute('alt'),
     .concat(Object.values(manifest.icons || {}))
     .concat(Object.values((manifest.action || {}).default_icon || {}))
     .concat([manifest.action && manifest.action.default_popup, manifest.background.service_worker])
+    .concat([(manifest.side_panel || {}).default_path])
     .concat((manifest.content_scripts || []).reduce((all, cs) =>
       all.concat(cs.js || [], cs.css || []), []))
     .filter(Boolean);

@@ -214,10 +214,15 @@ const SCHEMA = {
         { id: 'dwellClick', type: 'switch', label: 'Click by hovering', desc: 'Click by resting the pointer still, with no button press.', wcag: '2.5.1', keywords: 'dwell hover hands free head mouse eye' },
         { id: 'dwellClickDelay', type: 'slider', label: 'Hold still for', desc: 'How long to rest before a hover becomes a click.', min: 400, max: 3000, step: 100, default: 1000, suffix: 'ms', wcag: '2.5.1', keywords: 'dwell delay timing', dependsOn: 'dwellClick' },
         { id: 'stickyHover', type: 'switch', label: 'Hold menu colours', desc: 'Keep a menu item looking highlighted after the pointer leaves it. It cannot stop the site closing its own menus.', wcag: '1.4.13', keywords: 'menu dropdown closes too fast hover highlight' },
-        { id: 'keyboardOnly', type: 'switch', label: 'Keyboard navigation help', desc: 'Show shortcuts for moving around without a mouse.', wcag: '2.1.1', keywords: 'tab keys no mouse shortcuts' },
+        { id: 'keyboardOnly', type: 'switch', label: 'Keyboard-only mode', desc: 'Use pages without a mouse, one key at a time. F labels everything you can click, J and K scroll, and a guide in the corner lists every key. Alt+Shift+E turns it on and off.', wcag: '2.1.1', keywords: 'keyboard only no mouse without mouse keys shortcuts navigate navigation hints labels click vimium legend guide hand arthritis rsi tremor one hand single key tab' },
         { id: 'edgeScrolling', type: 'switch', label: 'Scroll at the edges', desc: 'Scroll the page by moving the pointer to its edge.', wcag: '2.5.1', keywords: 'scroll wheel drag' },
-        { id: 'voiceCommands', type: 'switch', label: 'Voice commands', desc: 'Control the page by speaking. Needs microphone access.', wcag: '2.5.3', keywords: 'speech speak microphone hands free' },
         { id: 'stopAnimations', type: 'switch', label: 'Stop animations', desc: 'Freeze anything that moves on its own.', wcag: '2.3.3', keywords: 'motion movement still reduce' }
+      ],
+      // Voice control is not a per-site switch: it is a panel beside every
+      // site, opened once, and listening until it is closed.
+      actions: [
+        { id: 'btnVoiceControl', label: 'Start voice control (no mouse or keyboard)', style: 'primary',
+          keywords: 'voice control commands speak speech talk microphone hands free no hands dictate click by voice say' }
       ]
     },
 
@@ -227,6 +232,18 @@ const SCHEMA = {
       label: 'Having pages read aloud',
       desc: 'Text to speech, and repairs for screen readers.',
       controls: [
+        { id: 'screenReader', type: 'switch', label: 'Built-in screen reader', desc: 'Read and move through pages with the keyboard, like NVDA. Arrow keys read, H jumps to headings, K to links, Insert+H lists every key. On for every website. Alt+Shift+Z turns it on and off.', wcag: '4.1.2', global: true, keywords: 'screen reader nvda jaws voiceover blind browse mode focus mode arrow keys headings links landmarks read aloud speak navigate virtual cursor say all' },
+        { id: 'srVerbosity', type: 'select', label: 'How much the screen reader says', desc: 'Low reads just the text and controls. Normal also says when you enter a list, table or landmark. High adds each list item\'s position.', default: 'normal', wcag: '4.1.2', keywords: 'screen reader verbosity detail chatty quiet brief landmarks lists tables', dependsOn: 'screenReader', options: [
+          { value: 'low', label: 'Low' },
+          { value: 'normal', label: 'Normal' },
+          { value: 'high', label: 'High' }
+        ] },
+        { id: 'srPunctuation', type: 'select', label: 'Punctuation read out', desc: 'All names every symbol, for checking an email address or a price.', default: 'some', wcag: '4.1.2', keywords: 'screen reader punctuation symbols comma dot at sign read out spell', dependsOn: 'screenReader', options: [
+          { value: 'none', label: 'None' },
+          { value: 'some', label: 'Some' },
+          { value: 'all', label: 'All' }
+        ] },
+        { id: 'srSpeechViewer', type: 'switch', label: 'Show what the screen reader says', desc: 'A caption box in the corner, for anyone helping or testing.', wcag: '4.1.2', keywords: 'speech viewer caption screen reader helper sighted test', dependsOn: 'screenReader' },
         { id: 'blindMode', type: 'switch', label: 'Screen reader repairs', desc: 'Quietly fix missing labels, landmarks and tab order.', wcag: '4.1.2', keywords: 'screen reader nvda jaws voiceover aria labels', defaultOn: true },
         { id: 'aiAutoHeal', type: 'switch', label: 'Name unlabelled buttons with AI', desc: 'Where the repairs above cannot name a button, ask Smart help. Runs by itself only once you have agreed to automatic fixes in Smart help.', wcag: '4.1.2', keywords: 'ai button buttons unlabelled unnamed icon name label heal automatic screen reader', defaultOn: true, dependsOn: 'blindMode' },
         { id: 'ttsReadOnSelect', type: 'switch', label: 'Read what I select', desc: 'Speak any text as soon as you highlight it.', wcag: '1.4.5', keywords: 'speak aloud selection highlight voice' },

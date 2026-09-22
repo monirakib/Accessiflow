@@ -16,13 +16,11 @@ class MotorModule {
     this._dwellIndicator = null;
     this._tremorFilter = null;
     this._lastClickTime = 0;
-    this._keyboardOverlay = null;
-    this._keyboardLabels = [];
+    this._keyboardNav = null;
     this._switchScanHandler = null;
     this._switchScanInterval = null;
     this._switchCurrentIdx = 0;
     this._switchElements = [];
-    this._voiceRecognition = null;
     this._dragAlternatives = [];
 
     // Dynamic visual pathing (the focus halo)
@@ -122,7 +120,7 @@ class MotorModule {
       }
       // 7. Keyboard-only mode
       if (s.keyboardOnly) {
-        css += '.accessiflow-kb-label { position:absolute;top:-8px;left:-8px;background:#4fffb0;color:#0e0f13;font-size:10px;font-weight:bold;padding:1px 4px;border-radius:3px;z-index:2147483640;font-family:"Space Mono",monospace;pointer-events:none; }\n';
+        // Without a mouse, knowing where the keyboard is is not optional.
         if (!s.focusHalo) {
           css += 'a:focus, button:focus, input:focus, select:focus, textarea:focus, [tabindex]:focus { outline:3px solid #4fffb0 !important; outline-offset:3px !important; }\n';
         }
@@ -329,126 +327,32 @@ class MotorModule {
     } catch (e) { this._warn('applyTremorFilter: ' + e.message); }
   }
 
-  // ── 9. Keyboard-Only Mode ────────────────────────────────
+  // ── 9. Keyboard-only mode ────────────────────────────────
+  //
+  // This used to number the first ten controls and jump to them with
+  // Ctrl+1..0, which Chrome already uses to switch tabs, so it mostly did
+  // nothing; it also appended the numbers inside inputs, where they cannot
+  // go. The real mode lives in keyboard-nav.js: single-key commands, letter
+  // labels on everything clickable, and a key guide on screen.
   applyKeyboardOnly(active) {
     try {
       if (active) {
-        if (this._keyboardLabels.length > 0) return;
-        const els = document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"]), [role="button"], [role="link"]');
-        let num = 1;
-        els.forEach(el => {
-          if (el.getAttribute('data-accessiflow-kb')) return;
-          if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
-          el.setAttribute('data-accessiflow-kb', num);
-          el.setAttribute('tabindex', el.getAttribute('tabindex') || '0');
-
-          const label = document.createElement('span');
-          label.className = 'accessiflow-kb-label';
-          label.textContent = num;
-          label.setAttribute('aria-hidden', 'true');
-
-          const pos = window.getComputedStyle(el).position;
-          if (pos === 'static') el.style.position = 'relative';
-          el.appendChild(label);
-          this._keyboardLabels.push({ el, label });
-          num++;
-        });
-
-        // Number key press to jump to element
-        this._switchScanHandler = (e) => {
-          if (e.ctrlKey && /^[0-9]$/.test(e.key)) {
-            let target = parseInt(e.key);
-            if (target === 0) target = 10;
-            const item = this._keyboardLabels[target - 1];
-            if (item) {
-              e.preventDefault();
-              item.el.focus();
-              item.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-          }
-        };
-        document.addEventListener('keydown', this._switchScanHandler);
-      } else {
-        this._keyboardLabels.forEach(({ el, label }) => {
-          try {
-            el.removeAttribute('data-accessiflow-kb');
-            label.remove();
-          } catch (err) { /* skip */ }
-        });
-        this._keyboardLabels = [];
-        if (this._switchScanHandler) {
-          document.removeEventListener('keydown', this._switchScanHandler);
-          this._switchScanHandler = null;
-        }
+        if (this._keyboardNav) return;
+        const Nav = window.AccessiFlowKeyboardNav;
+        if (!Nav) { this._warn('keyboard-nav.js not loaded'); return; }
+        this._keyboardNav = new Nav();
+        this._keyboardNav.enable();
+      } else if (this._keyboardNav) {
+        this._keyboardNav.disable();
+        this._keyboardNav = null;
       }
     } catch (e) { this._warn('applyKeyboardOnly: ' + e.message); }
   }
 
-  // ── 10. Voice Commands ────────────────────────────────────
-  applyVoiceCommands(active) {
-    try {
-      if (active) {
-        if (this._voiceRecognition) return;
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) { this._warn('Speech Recognition not supported'); return; }
-
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = false;
-        recognition.lang = document.documentElement.lang || 'en-US';
-
-        recognition.onresult = (event) => {
-          const last = event.results[event.results.length - 1];
-          if (!last.isFinal) return;
-          const cmd = last[0].transcript.toLowerCase().trim();
-          this._log('Voice command: ' + cmd);
-
-          if (cmd.includes('scroll down')) window.scrollBy(0, 300);
-          else if (cmd.includes('scroll up')) window.scrollBy(0, -300);
-          else if (cmd.includes('go to top')) window.scrollTo(0, 0);
-          else if (cmd.includes('go to bottom')) window.scrollTo(0, document.body.scrollHeight);
-          else if (cmd.includes('go back')) window.history.back();
-          else if (cmd.includes('go forward')) window.history.forward();
-          else if (cmd.includes('reload') || cmd.includes('refresh')) location.reload();
-          else if (cmd.includes('click')) {
-            // Find element with matching text
-            const text = cmd.replace('click', '').trim();
-            if (text) {
-              const els = document.querySelectorAll('a, button, [role="button"]');
-              for (const el of els) {
-                if ((el.textContent || '').toLowerCase().trim().includes(text)) {
-                  el.click();
-                  break;
-                }
-              }
-            }
-          }
-          else if (cmd.includes('tab') || cmd.includes('next')) {
-            const active = document.activeElement;
-            const focusable = Array.from(document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]'));
-            const idx = focusable.indexOf(active);
-            if (idx >= 0 && idx < focusable.length - 1) focusable[idx + 1].focus();
-            else if (focusable.length > 0) focusable[0].focus();
-          }
-        };
-
-        recognition.onerror = () => { /* restart on error */ };
-        recognition.onend = () => {
-          if (this._voiceRecognition) {
-            try { recognition.start(); } catch (e) { /* skip */ }
-          }
-        };
-
-        try { recognition.start(); } catch (e) { this._warn('Voice start error: ' + e.message); }
-        this._voiceRecognition = recognition;
-      } else {
-        if (this._voiceRecognition) {
-          try { this._voiceRecognition.stop(); } catch (e) { /* skip */ }
-          this._voiceRecognition = null;
-        }
-      }
-    } catch (e) { this._warn('applyVoiceCommands: ' + e.message); }
-  }
+  // ── 10. Voice commands ── moved: voice control is now its own side panel
+  // (voice-panel.js), acting through modules/voice-nav.js. The old listener
+  // here matched command words anywhere in a sentence and asked for the
+  // microphone on every site.
 
   // ── 11. Edge Scrolling ────────────────────────────────────
   applyEdgeScrolling(active) {
@@ -803,7 +707,6 @@ class MotorModule {
       this.applyDwellClick(!!settings.dwellClick, settings.dwellClickDelay || 1000);
       this.applyTremorFilter(!!settings.tremorFilter, settings.tremorInterval);
       this.applyKeyboardOnly(!!settings.keyboardOnly);
-      this.applyVoiceCommands(!!settings.voiceCommands);
       this.applyEdgeScrolling(!!settings.edgeScrolling);
       this.applyFocusHalo(!!settings.focusHalo, settings);
       this.applyClickSnapping(!!settings.clickSnapping, settings);
@@ -819,7 +722,6 @@ class MotorModule {
       this.applyDwellClick(false);
       this.applyTremorFilter(false);
       this.applyKeyboardOnly(false);
-      this.applyVoiceCommands(false);
       this.applyEdgeScrolling(false);
       this.applyFocusHalo(false);
       this.applyClickSnapping(false);

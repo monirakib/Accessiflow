@@ -29,7 +29,9 @@
   let auditModule = null;
   let aiModule = null;
   let ttsEngine = null;
+  let voiceNav = null;
 
+  try { voiceNav = new VoiceNavModule(); } catch (e) { _warn('VoiceNavModule init failed: ' + e.message); }
   try { blindModule = new BlindModule(); } catch (e) { _warn('BlindModule init failed: ' + e.message); }
   try { visionModule = new VisionModule(); } catch (e) { _warn('VisionModule init failed: ' + e.message); }
   try { contrastModule = new ContrastModule(); } catch (e) { _warn('ContrastModule init failed: ' + e.message); }
@@ -89,7 +91,7 @@
         const held = this._pending;
         if (held && this._voices.length) {
           this._pending = null;
-          this.speak(held.text, held.element);
+          this.speak(held.text, held.element).then(held.resolve);
         }
       };
 
@@ -105,7 +107,7 @@
         this._gaveUpWaiting = true;
         const held = this._pending;
         this._pending = null;
-        if (held) this.speak(held.text, held.element);
+        if (held) this.speak(held.text, held.element).then(held.resolve);
       }, 1500);
     }
 
@@ -198,14 +200,20 @@
       return runs.length ? runs : [{ lang: this.languageOf(text), text: String(text) }];
     }
 
+    /**
+     * Resolves true once all of it has been said, or false if something cut
+     * in first. The screen reader waits on this to read the next line.
+     */
     speak(text, element) {
-      if (!text || !text.trim()) return;
+      if (!text || !text.trim()) return Promise.resolve(false);
 
       // Still waiting for Chrome's voice list: hold this rather than say it
       // in the wrong voice.
       if (!this._voiceList().length && !this._gaveUpWaiting) {
-        this._pending = { text: text, element: element };
-        return;
+        if (this._pending && this._pending.resolve) this._pending.resolve(false);
+        return new Promise(resolve => {
+          this._pending = { text: text, element: element, resolve: resolve };
+        });
       }
 
       this.stop();
@@ -214,7 +222,7 @@
       if (element) this.highlightCurrent(element);
       this.isReading = true;
       this._turn = (this._turn || 0) + 1;
-      this._playRuns(runs, this._turn);
+      return new Promise(resolve => this._playRuns(runs, this._turn, resolve));
     }
 
     /**
@@ -224,12 +232,14 @@
      * each keeps a mixed-language page in order instead of two voices talking
      * over one another.
      */
-    _playRuns(runs, turn) {
+    _playRuns(runs, turn, done) {
+      done = done || (() => {});
       const next = i => {
-        if (turn !== this._turn) return;          // stopped, or replaced
+        if (turn !== this._turn) { done(false); return; }   // stopped, or replaced
         if (i >= runs.length) {
           this.unhighlight();
           this.isReading = false;
+          done(true);
           return;
         }
         this._playRun(runs[i]).then(() => next(i + 1), () => next(i + 1));
@@ -242,7 +252,40 @@
       // No voice on this computer, but we brought one: use it rather than
       // hand the text to a voice that will say nothing.
       if (!voice && OWN_VOICE_LANGS[run.lang]) return this._playWithOwnVoice(run);
+      // Chrome refuses page speech until the user has pressed or clicked
+      // something here (measured: "not-allowed" before, speech after). Until
+      // then, the computer's voices are reached through the extension.
+      if (!this._pageMaySpeak()) return this._playWithSystem(run);
       return this._playWithBrowser(run, voice);
+    }
+
+    _pageMaySpeak() {
+      const activation = navigator.userActivation;
+      return !activation || activation.hasBeenActive;
+    }
+
+    /** The same voices, through chrome.tts in the service worker. */
+    _playWithSystem(run) {
+      return new Promise(resolve => {
+        try {
+          chrome.runtime.sendMessage({
+            action: 'speakSystem',
+            text: run.text,
+            lang: this.regionFor(run.lang),
+            rate: this.rate,
+            pitch: this.pitch
+          }, reply => {
+            void chrome.runtime.lastError;
+            // Refused there too: try the page's own voice, which may be
+            // allowed by now if a key was pressed meanwhile.
+            if (reply && reply.success === false && this._pageMaySpeak()) {
+              this._playWithBrowser(run, this.voiceFor(run.lang)).then(resolve);
+            } else resolve();
+          });
+        } catch (e) {
+          resolve();
+        }
+      });
     }
 
     _playWithBrowser(run, voice) {
@@ -277,7 +320,14 @@
           }
           finish();
         };
-        utter.onerror = () => {
+        utter.onerror = e => {
+          // "not-allowed" means no key pressed on this page yet, not a
+          // missing voice; telling a Bangla user to install a voice they
+          // already have would send them off on a pointless errand.
+          if (e && e.error === 'not-allowed') {
+            this._playWithSystem(run).then(finish);
+            return;
+          }
           if (!voice && run.lang !== 'en') this._reportMissingVoice(run.lang);
           finish();
         };
@@ -340,6 +390,7 @@
 
     stop() {
       this._turn = (this._turn || 0) + 1;   // abandon anything still queued
+      if (this._pending && this._pending.resolve) this._pending.resolve(false);
       this._pending = null;
       try { this.synth.cancel(); } catch (e) { /* ok */ }
       try {
@@ -566,6 +617,58 @@
   let blindMode = true;   // on unless the user turns Screen reader repairs off
   let extensionEnabled = true;
 
+  // ── Screen reader ─────────────────────────────────────────
+  //
+  // On or off for every site at once, unlike everything else here: a blind
+  // user cannot be expected to find a switch on each new website before the
+  // thing that would read the switch out is running. So its state is one
+  // global key, written by the popup and by Alt+Shift+Z, and every open tab
+  // follows it.
+  const SCREEN_READER_KEY = 'accessiflowScreenReader';
+  let screenReaderOn = false;
+  let screenReader = null;
+
+  function applyScreenReader(on, intro) {
+    screenReaderOn = !!on;
+    const Reader = window.AccessiFlowScreenReader;
+    if (!Reader || !ttsEngine) return;
+    const wanted = screenReaderOn && extensionEnabled;
+    if (wanted) {
+      if (!screenReader) screenReader = new Reader();
+      screenReader.enable({
+        speak: text => ttsEngine.speak(text),
+        stop: () => ttsEngine.stop()
+      }, Object.assign({ intro: !!intro }, readerOptions(currentSettings)));
+    } else if (screenReader) {
+      screenReader.disable();
+    }
+    // Two voices reading the same focus change is worse than one.
+    try { HoverReader.applyFocus(!!currentSettings.ttsReadOnFocus && !wanted); } catch (e) { /* ok */ }
+  }
+
+  function readerOptions(settings) {
+    return {
+      viewer: !!settings.srSpeechViewer,
+      verbosity: settings.srVerbosity || 'normal',
+      punctuation: settings.srPunctuation || 'some',
+      // Insert+D: the same describer as Alt+Shift+D.
+      describe: aiModule ? (img, waiting) => aiModule.describeForSpeech(img, waiting) : null
+    };
+  }
+
+  function setScreenReader(on) {
+    applyScreenReader(on, on);
+    try { chrome.storage.local.set({ [SCREEN_READER_KEY]: !!on }); } catch (e) { /* ok */ }
+  }
+
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local' || !changes[SCREEN_READER_KEY]) return;
+      const on = !!changes[SCREEN_READER_KEY].newValue;
+      if (on !== screenReaderOn) applyScreenReader(on, on && document.hasFocus());
+    });
+  } catch (e) { /* not in an extension */ }
+
   // ── Apply Settings ────────────────────────────────────────
   function applySettings(settings) {
     try {
@@ -706,8 +809,14 @@
       // Read what the user points at, and what they tab to
       try {
         HoverReader.applyHover(!!settings.ttsReadOnHover);
-        HoverReader.applyFocus(!!settings.ttsReadOnFocus);
+        HoverReader.applyFocus(!!settings.ttsReadOnFocus && !screenReaderOn);
       } catch (e) { _warn('Hover reading apply error: ' + e.message); }
+
+      // The built-in screen reader keeps its own on/off; this only passes the
+      // display options on to it.
+      if (screenReader && screenReader.active) {
+        try { screenReader.configure(readerOptions(settings)); } catch (e) { /* ok */ }
+      }
 
       // TTS rate/pitch/voice
       if (ttsEngine) {
@@ -763,7 +872,10 @@
   function loadSettings() {
     try {
       const key = getSettingsKey();
-      chrome.storage.local.get(key, data => {
+      chrome.storage.local.get([key, SCREEN_READER_KEY], data => {
+        screenReaderOn = !!data[SCREEN_READER_KEY];
+        // Last, so the repairs above have already named what it will read.
+        setTimeout(() => applyScreenReader(screenReaderOn, false), 0);
         if (data[key]) {
           _log('Loaded saved settings for ' + location.hostname);
           applySettings(data[key]);
@@ -807,6 +919,7 @@
     try { if (blindModule) blindModule.destroy(); } catch (e) { /* ok */ }
     try { ImageSpeech.disable(); } catch (e) { /* ok */ }
     try { HoverReader.applyHover(false); HoverReader.applyFocus(false); } catch (e) { /* ok */ }
+    try { if (screenReader) screenReader.disable(); } catch (e) { /* ok */ }
     try { if (ttsEngine) ttsEngine.stop(); } catch (e) { /* ok */ }
     if (dynamicStyle) dynamicStyle.textContent = '';
     currentSettings = {};
@@ -825,8 +938,15 @@
           sendResponse({ success: true });
           break;
 
+        case 'srFrame': {
+          // A frame's agent: its lines, a key pressed in it, focus moving in it.
+          const reply = screenReader && screenReader.active ? screenReader.onFrameMessage(msg.from, msg.msg || {}) : null;
+          sendResponse(reply === undefined ? null : reply);
+          break;
+        }
+
         case 'getSettings':
-          sendResponse({ success: true, data: currentSettings });
+          sendResponse({ success: true, data: Object.assign({}, currentSettings, { screenReader: screenReaderOn }) });
           break;
 
         case 'resetSettings':
@@ -977,6 +1097,19 @@
         case 'ping':
           sendResponse({ success: true, loaded: true });
           break;
+
+        // A spoken command from the voice control panel, already parsed. It
+        // works whatever this page's own settings are: someone steering by
+        // voice has no other way in.
+        case 'voiceCommand':
+          if (!voiceNav) {
+            sendResponse({ success: false, message: 'Voice control did not load on this page. Say reload.' });
+            break;
+          }
+          Promise.resolve(voiceNav.handle(msg.command || {}))
+            .then(reply => sendResponse(Object.assign({ success: true }, reply)))
+            .catch(err => sendResponse({ success: false, message: err.message }));
+          return true;   // answered when the command has run
 
         // Live captions, cues and levels from the offscreen document, relayed
         // by the service worker for this tab only.
@@ -1201,6 +1334,18 @@
         applySettings(currentSettings);
         handled = true;
         break;
+      case 'E': // Keyboard-only mode. Saved, unlike the toggles above: someone
+        // who cannot use a mouse should not have to find this again on every
+        // page load.
+        e.preventDefault();
+        e.stopPropagation();
+        currentSettings.keyboardOnly = !currentSettings.keyboardOnly;
+        applySettings(currentSettings);
+        saveSettings(currentSettings);
+        tellUser(currentSettings.keyboardOnly
+          ? 'Keyboard-only mode on. Press F to label everything you can click, or H for the list of keys.'
+          : 'Keyboard-only mode off.');
+        return;
       case 'V': // Dictate into the box I am in
         if (speechModule && currentSettings.speechToText) {
           speechModule.toggleDictation();
@@ -1220,6 +1365,17 @@
         e.stopPropagation();
         ImageSpeech.describeCurrent();
         return;   // its own speech is the feedback; no shortcut announcement
+      case 'Z': // The built-in screen reader, on or off everywhere
+        e.preventDefault();
+        e.stopPropagation();
+        if (screenReaderOn) {
+          setScreenReader(false);
+          tellUser('Screen reader off.');
+        } else {
+          setScreenReader(true);   // it introduces itself
+        }
+        return;
+
       case 'U': // Let me out: release a focus lock that guessed wrong
         e.preventDefault();
         e.stopPropagation();

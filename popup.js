@@ -23,6 +23,12 @@
   let currentTabId = null;
   let currentHostname = '';
   let settings = {};
+
+  // Switches that apply to every website at once. They live in a storage key
+  // of their own, never in a site's settings, so a preset or "turn
+  // everything off" on one site cannot switch them off everywhere.
+  const GLOBAL_KEYS = { screenReader: 'accessiflowScreenReader' };
+  const globals = {};
   let pageReachable = true;
 
   // Flattened views of the schema, built once at render time.
@@ -233,6 +239,13 @@
 
     input.addEventListener('change', () => {
       settings[control.id] = input.checked;
+      if (GLOBAL_KEYS[control.id]) {
+        globals[control.id] = input.checked;
+        try { chrome.storage.local.set({ [GLOBAL_KEYS[control.id]]: input.checked }); } catch (e) { /* ok */ }
+        announce(control.label + ' ' + (input.checked ? 'on, for every website' : 'off') + '.');
+        refreshDependants();
+        return;
+      }
       clearProfileSelection();
       commit();
       announce(control.label + ' ' + (input.checked ? 'on' : 'off') + '.');
@@ -427,6 +440,8 @@
           (action.style === 'primary' ? 'btn-primary' : 'btn-quiet'), action.label);
         button.type = 'button';
         button.id = action.id;
+        // Searchable like a setting, so "voice" finds the voice control button.
+        button.dataset.search = searchText(action.label + ' ' + (action.keywords || '')) + searchText(section.label);
         actions.appendChild(button);
       });
       body.appendChild(actions);
@@ -532,6 +547,7 @@
   }
 
   function paintFromSettings() {
+    Object.keys(GLOBAL_KEYS).forEach(id => { settings[id] = Boolean(globals[id]); });
     SWITCHES.forEach(id => {
       const input = document.getElementById(id);
       if (input) input.checked = Boolean(settings[id]);
@@ -729,6 +745,14 @@
         const hit = !words.length || matchesAll(row.dataset.search, words);
         row.hidden = !hit;
         if (hit) hits++;
+      });
+      // A class, not `hidden`: several of these buttons are shown and hidden
+      // by their own state (a Stop button while captions run), and search
+      // must not undo that.
+      section.querySelectorAll('.section-actions .btn').forEach(button => {
+        const hit = !words.length || matchesAll(button.dataset.search || '', words);
+        button.classList.toggle('search-miss', !hit);
+        if (hit && words.length && !button.hidden) hits++;
       });
 
       // Outside the chosen type. Counted but not shown, so a search can say
@@ -1538,6 +1562,29 @@
     });
   }
 
+  // ── Voice control ───────────────────────────────────────────────────────
+  //
+  // Opens the side panel that listens. Chrome only opens a side panel in
+  // direct answer to a click, so this is called straight from the handler,
+  // with the window id fetched beforehand rather than awaited inside it.
+
+  function initVoiceControl() {
+    const button = $('#btnVoiceControl');
+    if (!button) return;
+    let windowId = null;
+    try { chrome.windows.getCurrent(w => { windowId = w && w.id; }); } catch (e) { /* ok */ }
+
+    button.addEventListener('click', () => {
+      if (!chrome.sidePanel || windowId === null) {
+        announce('Voice control needs a newer version of Chrome.');
+        return;
+      }
+      chrome.sidePanel.open({ windowId: windowId })
+        .then(() => window.close())
+        .catch(() => announce('The voice control panel could not open. Press Alt+Shift+X instead.'));
+    });
+  }
+
   // ── Help ────────────────────────────────────────────────────────────────
 
   function initHelp() {
@@ -1551,6 +1598,8 @@
         'Alt+Shift+Q opens AccessiFlow. Alt+Shift+A turns it on and off. ' +
         'Alt+Shift+R reads the page aloud and Alt+Shift+S stops. ' +
         'Alt+Shift+C switches high contrast, and Alt+Shift+M switches the reading mask. ' +
+        'Alt+Shift+E turns on keyboard-only mode, which shows its own list of keys on the page. ' +
+        'Alt+Shift+X opens voice control, for using pages by speaking. ' +
         'Inside this panel, Tab moves between controls and Space switches them on or off.',
         'Got it', 'Close'
       );
@@ -1572,6 +1621,7 @@
     initAI();
     initAudit();
     initDataActions();
+    initVoiceControl();
     initHelp();
 
     settings = defaults();
@@ -1589,7 +1639,9 @@
       }
       $('#currentHostname').textContent = currentHostname;
 
-      chrome.storage.local.get('settings_' + currentHostname, data => {
+      const globalKeys = Object.keys(GLOBAL_KEYS).map(id => GLOBAL_KEYS[id]);
+      chrome.storage.local.get(['settings_' + currentHostname].concat(globalKeys), data => {
+        Object.keys(GLOBAL_KEYS).forEach(id => { globals[id] = Boolean(data[GLOBAL_KEYS[id]]); });
         const saved = data['settings_' + currentHostname];
         if (saved) settings = Object.assign(defaults(), saved);
         paintFromSettings();
