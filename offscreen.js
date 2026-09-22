@@ -98,7 +98,14 @@
           try { resolve(engine.FS.readFile('/out.wav')); }
           catch (e) { reject(new Error('the engine produced no sound')); }
         },
-        printErr: function (line) { warn(line); }
+        // eSpeak always probes for en_dict as a shared table of currency/
+        // symbol/abbreviation readings, whichever voice is asked for. We
+        // only ship bn_dict on purpose (see DATA_FILES), so this one line
+        // is expected and harmless -- synthesis still succeeds without it.
+        printErr: function (line) {
+          if (/en_dict/.test(line)) return;
+          warn(line);
+        }
       };
 
       try { EspeakNg(engine); } catch (e) { reject(e); }

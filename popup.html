@@ -115,9 +115,9 @@
     <!-- ── AI help ────────────────────────────────────────────────────
          First and open: these three buttons are what people come back
          for, and they should not need a search to be found. -->
-    <section class="section section--open" id="section-ai">
+    <section class="section" id="section-ai">
       <h2 class="section-heading">
-        <button type="button" class="section-toggle" aria-expanded="true" aria-controls="body-ai">
+        <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-ai">
           <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-spark"/></svg>
           <span class="section-title">
             <span class="section-label">Smart help</span>
@@ -126,7 +126,7 @@
           <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
         </button>
       </h2>
-      <div class="section-body" id="body-ai">
+      <div class="section-body" id="body-ai" hidden>
         <div class="ai-actions">
           <button type="button" class="btn btn-primary btn-full" id="btnAiAltText">
             Describe the pictures
@@ -213,9 +213,9 @@
     </section>
 
     <!-- Profiles: the shortest path from "I cannot read this" to relief. -->
-    <section class="section section--open" id="section-profiles">
+    <section class="section" id="section-profiles">
       <h2 class="section-heading">
-        <button type="button" class="section-toggle" aria-expanded="true" aria-controls="body-profiles">
+        <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-profiles">
           <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-spark"/></svg>
           <span class="section-title">
             <span class="section-label">Quick setup</span>
@@ -224,7 +224,7 @@
           <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
         </button>
       </h2>
-      <div class="section-body" id="body-profiles">
+      <div class="section-body" id="body-profiles" hidden>
         <div class="profile-grid" id="profileGrid" role="group" aria-label="Accessibility profiles"></div>
         <button type="button" id="btnTurnOff" class="btn btn-quiet btn-full">
           <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-power"/></svg>
