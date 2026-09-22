@@ -1,0 +1,262 @@
+<title>AccessiFlow Privacy</title>
+<style>
+  :root {
+    --bg: #f7f8f7;
+    --surface: #ffffff;
+    --border: #e1e4e1;
+    --ink: #14171a;
+    --ink-soft: #4b5450;
+    --accent: #0a9a63;
+    --accent-soft: #e5f7ee;
+    --warn-bg: #fff8e8;
+    --warn-border: #f0dca3;
+    --code-bg: #eef1ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e0f13;
+      --surface: #16181c;
+      --border: #262a2e;
+      --ink: #eef1ee;
+      --ink-soft: #a7b0ab;
+      --accent: #4fffb0;
+      --accent-soft: #123326;
+      --warn-bg: #2a230f;
+      --warn-border: #4a3c17;
+      --code-bg: #1c1f23;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e0f13;
+    --surface: #16181c;
+    --border: #262a2e;
+    --ink: #eef1ee;
+    --ink-soft: #a7b0ab;
+    --accent: #4fffb0;
+    --accent-soft: #123326;
+    --warn-bg: #2a230f;
+    --warn-border: #4a3c17;
+    --code-bg: #1c1f23;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.6;
+    padding-inline: 16px;
+    padding-block: 48px 80px;
+  }
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  header.top {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+  .mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--ink);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 700;
+    font-size: 22px;
+    flex: none;
+  }
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: clamp(28px, 5vw, 36px);
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .meta {
+    color: var(--ink-soft);
+    font-size: 14px;
+    margin: 4px 0 40px;
+  }
+  .lede {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 20px 22px;
+    font-size: 16px;
+    color: var(--ink);
+    margin-bottom: 40px;
+  }
+  .lede strong { color: var(--accent); }
+
+  h2 {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 21px;
+    font-weight: 600;
+    margin: 48px 0 14px;
+    letter-spacing: -0.01em;
+  }
+  h2 .num {
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    margin-right: 10px;
+    font-family: "Source Sans 3", sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  p { margin: 0 0 14px; color: var(--ink); }
+  p.soft { color: var(--ink-soft); }
+
+  ul { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 8px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0 24px;
+    font-size: 14.5px;
+  }
+  .table-wrap { overflow-x: auto; }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    color: var(--ink-soft);
+    font-weight: 600;
+    font-size: 12.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  td.yes { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  td.no { color: var(--ink-soft); white-space: nowrap; }
+
+  .callout {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    font-size: 14.5px;
+    margin: 18px 0;
+  }
+
+  code, .mono {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.9em;
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--ink-soft);
+    font-size: 13.5px;
+  }
+  a { color: var(--accent); }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 26px; }
+    .mark { width: 34px; height: 34px; font-size: 18px; }
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap">
+
+<div class="page">
+  <header class="top">
+    <div class="mark">A</div>
+    <h1>AccessiFlow Privacy Policy</h1>
+  </header>
+  <p class="meta">Effective 22 September 2026 · Applies to the AccessiFlow browser extension</p>
+
+  <div class="lede">
+    <strong>In one paragraph:</strong> AccessiFlow changes how a web page looks, sounds and behaves on your own device to make it accessible. Most of what it does — dark mode, the screen reader, keyboard navigation, live captions — never leaves your browser. The only thing that goes to a server is page text or an image, and only when you turn on an AI feature (button repair, form explanations, simplified text) — sent to power that one feature, never sold, and never used to identify you.
+  </div>
+
+  <h2><span class="num">01</span>What AccessiFlow is for</h2>
+  <p>AccessiFlow is an accessibility extension. Its single purpose is to make the website you're currently viewing easier to see, hear, navigate and understand for people with disabilities, following WCAG 2.2. Every permission it requests and every byte of data it touches exists to serve that purpose — nothing else.</p>
+
+  <h2><span class="num">02</span>What stays on your device</h2>
+  <p>These features run entirely locally. Nothing about your browsing is sent anywhere to provide them:</p>
+  <ul>
+    <li><strong>Smart Dark Mode, Reading Lens, Seizure-safe mode</strong> — computed from the page's own styles in memory.</li>
+    <li><strong>Built-in screen reader, keyboard-only mode, voice control</strong> — read and act on the page's structure locally; voice recognition and command parsing happen in your browser.</li>
+    <li><strong>Live captions</strong> — audio from the current tab is transcribed on-device using a local speech-recognition model. Audio is never uploaded.</li>
+    <li><strong>Your settings</strong> (contrast mode, font size, language, feature toggles) — saved in your browser's local extension storage, not on any server we operate.</li>
+  </ul>
+
+  <h2><span class="num">03</span>What is sent off your device — and only with your consent</h2>
+  <p>A small set of AI-assisted features need a server-hosted language model. These are off by default; enabling them in AccessiFlow's settings is what gives consent, and each request is also subject to an hourly usage budget.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Feature</th><th>What's sent</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Broken button / control repair</td><td>The control's surrounding text and role</td><td>To generate a spoken label so screen readers can announce it</td></tr>
+        <tr><td>Form briefs</td><td>The form's visible text and field structure</td><td>To generate a plain-language summary before you fill it in</td></tr>
+        <tr><td>Page simplifier / TL;DR</td><td>The page's visible text</td><td>To produce a simplified rewrite or summary</td></tr>
+        <tr><td>Image descriptions (alt text)</td><td>The specific image being described</td><td>To generate alt text for an unlabeled image</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>These requests go to AccessiFlow's own proxy server, which forwards them to a hosted language model provider to generate the result, then returns it to your browser. Successful results are cached briefly on our proxy so the same page content isn't re-processed twice, then expire.</p>
+
+  <div class="callout">
+    We do not send your name, email, account credentials, financial information, health information, or your browsing history to any server. We do not use this data for advertising, analytics, or to build a profile of you.
+  </div>
+
+  <h2><span class="num">04</span>What we don't collect</h2>
+  <div class="table-wrap">
+    <table>
+      <tbody>
+        <tr><td>Personally identifiable information (name, email, address)</td><td class="no">Not collected</td></tr>
+        <tr><td>Health, financial or payment information</td><td class="no">Not collected</td></tr>
+        <tr><td>Passwords or authentication credentials</td><td class="no">Not collected</td></tr>
+        <tr><td>Browsing / web history</td><td class="no">Not collected</td></tr>
+        <tr><td>Location</td><td class="no">Not collected</td></tr>
+        <tr><td>Keystrokes, clicks or mouse movement</td><td class="no">Read locally to operate features; never transmitted or stored</td></tr>
+        <tr><td>Page text or images, when an AI feature is on</td><td class="yes">Sent to generate that feature's result</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2><span class="num">05</span>Third parties involved</h2>
+  <p>When an AI feature is used, page content passes through:</p>
+  <ul>
+    <li><strong>AccessiFlow's own proxy server</strong> (hosted on Cloudflare Workers) — routes the request and applies caching and rate limits.</li>
+    <li><strong>A third-party model hosting provider</strong> — runs the language model that generates the label, summary or description.</li>
+  </ul>
+  <p class="soft">Neither party uses this content to train models on our behalf or retains it beyond what's needed to serve the request.</p>
+
+  <h2><span class="num">06</span>Your controls</h2>
+  <ul>
+    <li>AI-assisted features are <strong>off until you turn them on</strong> in AccessiFlow's settings.</li>
+    <li>You can turn any feature off at any time, which stops further requests immediately.</li>
+    <li>Uninstalling the extension removes all locally stored settings and cached data from your browser.</li>
+  </ul>
+
+  <h2><span class="num">07</span>Children's privacy</h2>
+  <p>AccessiFlow is not directed at children and does not knowingly collect data from anyone, regardless of age — its handling of page content is identical for every user.</p>
+
+  <h2><span class="num">08</span>Changes to this policy</h2>
+  <p>If AccessiFlow's data practices change, this page will be updated and the "Effective" date above will change accordingly.</p>
+
+  <footer>
+    Questions about this policy or AccessiFlow's data handling: <a href="mailto:secureappproj@gmail.com">secureappproj@gmail.com</a>
+  </footer>
+</div>
