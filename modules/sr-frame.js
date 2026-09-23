@@ -79,6 +79,7 @@
       this._opts = opts || {};
       this._frames = new Map();       // frame element → { frameId, nonce, lines }
       this.mode = 'browse';
+      this.letters = true;            // single letter navigation, as the reader has it
       this._stopped = false;
       this._windows = [window];
       this._onMessage = e => this._hello(e);
@@ -130,7 +131,7 @@
     refresh(el) {
       const f = this._frames.get(el);
       if (!f) return;
-      relay(f.frameId, { type: 'snapshot', nonce: f.nonce, mode: this.mode }).then(reply => {
+      relay(f.frameId, { type: 'snapshot', nonce: f.nonce, mode: this.mode, letters: this.letters }).then(reply => {
         if (this._stopped || this._frames.get(el) !== f) return;
         if (reply && Array.isArray(reply.lines)) {
           f.lines = reply.lines;
@@ -159,7 +160,13 @@
 
     setMode(mode) {
       this.mode = mode;
-      this.broadcast({ type: 'mode', mode: mode });
+      this.broadcast({ type: 'mode', mode: mode, letters: this.letters });
+    }
+
+    /** Single letter navigation off: letters typed in a frame go to that frame's page. */
+    setLetters(on) {
+      this.letters = on !== false;
+      this.broadcast({ type: 'mode', mode: this.mode, letters: this.letters });
     }
   }
 
@@ -183,15 +190,15 @@
   }
 
   /** The keys the reader takes for itself in browse mode, by the same rules it uses. */
-  function readerKey(e) {
+  function readerKey(e, letters) {
     const k = e.key || '';
     if (e.metaKey) return false;
     if (e.ctrlKey && e.altKey) return !!ARROWS[k];
     if (e.altKey) return false;
     if (ARROWS[k] || k === 'Home' || k === 'End') return true;
     if (e.ctrlKey) return false;
-    if (k === 'Enter' || k === ' ') return true;
-    return k.length === 1;
+    if (k === 'Enter' || k === ' ' || k === 'PageDown' || k === 'PageUp') return true;
+    return letters !== false && k.length === 1;
   }
 
   class FrameAgent {
@@ -203,6 +210,7 @@
       this.parent = null;
       this.attached = false;
       this.mode = 'browse';
+      this.letters = true;
       this.hub = null;
       this._buf = null;
       this._dirty = true;
@@ -243,6 +251,7 @@
         if (msg.nonce !== this.nonce) return { error: 'unknown frame' };
         this.parent = from;
         if (msg.mode) this.mode = msg.mode;
+        if (typeof msg.letters === 'boolean') this.letters = msg.letters;
         this._attach();
         return { lines: this._lines() };
       }
@@ -250,7 +259,8 @@
       switch (msg.type) {
         case 'mode':
           this.mode = msg.mode === 'focus' ? 'focus' : 'browse';
-          if (this.hub) this.hub.setMode(this.mode);
+          if (typeof msg.letters === 'boolean') this.letters = msg.letters;
+          if (this.hub) { this.hub.letters = this.letters; this.hub.setMode(this.mode); }
           return { ok: true };
         case 'update':
           return { ok: !!(this.hub && this.hub.update(from, msg.lines)) };
@@ -369,7 +379,7 @@
       if (k === 'Shift' || k === 'Alt' || k === 'Meta' || k === 'AltGraph') return;
       if (this._mod) { this._eat(e); this._forward(e, 'down'); return; }
       if (this.mode !== 'browse') return;              // the page's keys; Escape is seen late
-      if (readerKey(e)) { this._eat(e); this._forward(e, 'down'); }
+      if (readerKey(e, this.letters)) { this._eat(e); this._forward(e, 'down'); }
       else if (k === 'Escape') this._forward(e, 'down');
     }
 

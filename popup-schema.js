@@ -31,7 +31,7 @@ const SCHEMA = {
   panels: {
     'section-ai': 'ai artificial intelligence smart help alt text image images picture pictures photo photos describe description caption summary summarise summarize explain overview what is this page about link links vague confusing click here rename button buttons unlabelled unnamed icon heal repair automatic plain language simple simplify simpler rewrite easy read jargon tldr key points bullets form forms fields documents need ready prepare',
     'section-audit': 'audit check checker test score wcag report scan problems issues errors how accessible',
-    'section-data': 'save load export import backup file json settings reset start again clear forget setup set up change my setup needs profile profiles preset quick'
+    'section-data': 'save load export import backup file json settings reset start again start over defaults turn off everything all off clear forget setup set up change my setup needs profile profiles preset quick'
   },
 
   /** Collapsible sections, rendered in this order. */
@@ -164,7 +164,7 @@ const SCHEMA = {
       label: 'Having pages read aloud',
       desc: 'Text to speech, and repairs for screen readers.',
       controls: [
-        { id: 'screenReader', type: 'switch', label: 'Built-in screen reader', desc: 'Read and move through pages with the keyboard, like NVDA. Arrow keys read, H jumps to headings, K to links, Insert+H lists every key. On for every website. Alt+Shift+Z turns it on and off.', wcag: '4.1.2', global: true, keywords: 'screen reader nvda jaws voiceover blind browse mode focus mode arrow keys headings links landmarks read aloud speak navigate virtual cursor say all' },
+        { id: 'screenReader', type: 'switch', label: 'Built-in screen reader', desc: 'Read and move through pages with the keyboard, like NVDA. Arrow keys read, H jumps to headings, K to links, B to buttons, Insert+H lists every key. On for every website, and in this panel and the setup page. Alt+Shift+Z turns it on and off.', wcag: '4.1.2', global: true, keywords: 'screen reader nvda jaws voiceover blind browse mode focus mode arrow keys headings links landmarks read aloud speak navigate virtual cursor say all' },
         { id: 'srVerbosity', type: 'select', label: 'How much the screen reader says', desc: 'Low reads just the text and controls. Normal also says when you enter a list, table or landmark. High adds each list item\'s position.', default: 'normal', wcag: '4.1.2', keywords: 'screen reader verbosity detail chatty quiet brief landmarks lists tables', dependsOn: 'screenReader', options: [
           { value: 'low', label: 'Low' },
           { value: 'normal', label: 'Normal' },

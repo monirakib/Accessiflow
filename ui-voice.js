@@ -10,6 +10,13 @@
 // speech is refused until the user has pressed something, and the setup page
 // has to talk from the moment it opens, because a blind user cannot find a
 // Start button they cannot see.
+//
+// Where the page also loads the screen reader (modules/screen-reader.js and
+// the modules it reads the page with), that reader runs here too, speaking
+// through the same chrome.tts. Then the keys are the ones a blind user
+// already knows from NVDA and from AccessiFlow on every website: the arrows
+// read line by line, H jumps to a heading, B to a button, Insert and Down
+// arrow reads everything. Without it, only what Tab lands on is said.
 'use strict';
 
 (function (root) {
@@ -99,6 +106,69 @@
     return parts.join(', ');
   }
 
+  /**
+   * chrome.tts as the screen reader's voice. speak() resolves true once the
+   * sentence was said to the end and false if something cut in, which is
+   * what lets "read everything" go on to the next line and stop on a key.
+   */
+  function ttsBackend(voice) {
+    let current = null;       // the sentence being said: { finish, guard, ms }
+
+    function arm(turn) {
+      clearTimeout(turn.guard);
+      // Some voices never report the end, and reading everything would stop
+      // for good on the first line. Long enough never to cut real speech.
+      turn.guard = setTimeout(() => turn.finish(true), turn.ms);
+    }
+
+    return {
+      speak(text) {
+        // A paused engine stays paused for the next sentence unless stopped
+        // first; something new to say means the pause is over.
+        if (voice._paused) {
+          voice._paused = false;
+          try { chrome.tts.stop(); } catch (e) { /* ok */ }
+        }
+        return new Promise(resolve => {
+          const turn = { guard: null, done: false };
+          turn.ms = Math.min(60000, 2500 + text.length * 120 / Math.min(1, voice.rate || 1));
+          turn.finish = ok => {
+            if (turn.done) return;
+            turn.done = true;
+            clearTimeout(turn.guard);
+            if (current === turn) current = null;
+            resolve(ok);
+          };
+          current = turn;
+          arm(turn);
+          try {
+            chrome.tts.speak(text, {
+              rate: voice.rate,
+              lang: 'en-US',
+              enqueue: false,
+              onEvent: event => {
+                const type = event && event.type;
+                if (type === 'end') turn.finish(true);
+                else if (type === 'interrupted' || type === 'cancelled' || type === 'error') turn.finish(false);
+              }
+            });
+          } catch (e) {
+            turn.finish(false);
+          }
+        });
+      },
+      stop() {
+        const turn = current;
+        current = null;
+        try { chrome.tts.stop(); } catch (e) { /* nothing was speaking */ }
+        if (turn) turn.finish(false);
+      },
+      // While paused the sentence is not over, however long the pause.
+      pause() { if (current) clearTimeout(current.guard); },
+      resume() { if (current) arm(current); }
+    };
+  }
+
   /** "Text size, slider, 130%. Make all text on the page bigger or smaller." */
   function describe(el) {
     if (!el || el.nodeType !== 1) return '';
@@ -113,18 +183,67 @@
   const UiVoice = {
     on: false,
     rate: 1,
+    reader: null,             // the screen reader, while it runs on this page
     _watching: false,
     _paused: false,
+    _backend: null,
+    _hostKey: null,
 
+    /**
+     * @param opts.rate     speaking speed
+     * @param opts.hostKey  (e, target) → true for a key the page keeps for
+     *                      itself in browse mode; target is what the reader's
+     *                      cursor would press
+     */
     enable(opts) {
       this.on = true;
       if (opts && typeof opts.rate === 'number') this.rate = opts.rate;
+      if (opts && typeof opts.hostKey === 'function') this._hostKey = opts.hostKey;
       this._watch();
+      this._startReader();
     },
 
     disable() {
       this.stop();
       this.on = false;
+      if (this.reader) this.reader.disable();
+      this.reader = null;
+    },
+
+    _startReader() {
+      const Reader = root.AccessiFlowScreenReader;
+      if (!Reader || !root.AccessiFlowSRBuffer || this.readerOn()) return;
+      if (typeof document === 'undefined' || !document.body) return;
+      if (!this._backend) this._backend = ttsBackend(this);
+      const reader = new Reader();
+      // Quiet: the page greets the user itself, in its own words.
+      reader.enable(this._backend, {
+        quietStart: true,
+        hostKey: (e, target) => (this._hostKey ? this._hostKey(e, target) : false)
+      });
+      this.reader = reader;
+    },
+
+    /** Whether the screen reader is running on this page. */
+    readerOn() {
+      return Boolean(this.reader && this.reader.active);
+    },
+
+    /** "browse" or "focus" while the screen reader runs here; '' otherwise. */
+    mode() {
+      return this.readerOn() ? this.reader.mode : '';
+    },
+
+    /**
+     * Moves focus without the voice naming the new spot, for a page about to
+     * say more about it itself. The reader's cursor goes there too.
+     */
+    focusQuietly(node, opts) {
+      if (!node) return;
+      if (this.readerOn()) { this.reader.focusSilently(node, opts); return; }
+      const was = this.on;
+      this.on = false;
+      try { node.focus(opts); } finally { this.on = was; }
     },
 
     setRate(rate) {
@@ -138,6 +257,13 @@
       // A paused engine stays paused for the next sentence unless stopped
       // first; something new to say means the pause is over.
       if (this._paused) this.stop();
+      // One voice, one queue: said as the reader, so its next line cuts this
+      // off and this cuts off its reading, instead of the two overlapping.
+      if (this.readerOn()) {
+        if (opts && opts.queue) this.reader.sayAfter(text);
+        else this.reader.say(text);
+        return;
+      }
       try {
         chrome.tts.speak(text, {
           rate: this.rate,
@@ -156,6 +282,7 @@
 
     stop() {
       this._paused = false;
+      if (this.readerOn()) this.reader.stopTalking();
       try { chrome.tts.stop(); } catch (e) { /* nothing was speaking */ }
     },
 
@@ -165,12 +292,14 @@
         if (this._paused) {
           this._paused = false;
           chrome.tts.resume();
+          if (this._backend) this._backend.resume();
           return;
         }
         chrome.tts.isSpeaking(speaking => {
           if (!speaking) return;
           this._paused = true;
           chrome.tts.pause();
+          if (this._backend) this._backend.pause();
         });
       } catch (e) { /* no speech on this platform */ }
     },
@@ -182,8 +311,9 @@
       this._watching = true;
 
       // What has focus, as it arrives: the same thing a screen reader says.
+      // The screen reader, when it runs here, says that itself.
       document.addEventListener('focusin', e => {
-        if (!this.on) return;
+        if (!this.on || this.readerOn()) return;
         const text = describe(e.target);
         if (text) this.say(text);
       });

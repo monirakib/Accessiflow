@@ -2,9 +2,9 @@
 //
 // Two screens. Home is what most people open the panel for: whether
 // AccessiFlow is on for this site, what their setup is, four big buttons
-// (read, stop, summarise, describe the pictures), and the few settings that
-// matter for the needs they chose. "All settings" holds everything else,
-// with search, exactly as before.
+// (read, stop, summarise, describe the pictures), the few settings that
+// matter for the needs they chose, and Reset everything. "All settings"
+// holds everything else, with search, exactly as before.
 //
 // Every control is rendered from popup-schema.js, so a setting's label, help
 // text and search terms are defined in exactly one place. Nothing here builds
@@ -66,8 +66,9 @@
   // ── Announcements ───────────────────────────────────────────────────────
   // One polite live region for the whole popup. Several competing live regions
   // make a screen reader talk over itself, so everything funnels through here.
-  // With AccessiFlow's own screen reader on, it is also spoken aloud, since
-  // that reader does not run inside this panel.
+  // With AccessiFlow's own screen reader on, it is also spoken aloud, by that
+  // reader, which leaves live regions to this function here rather than
+  // read each message twice.
 
   let announceTimer = null;
   function announce(message, opts) {
@@ -1443,8 +1444,43 @@
     return out;
   }
 
+  /**
+   * Reset everything: every setting back to where a new install starts, on
+   * every website, after a yes. The built-in screen reader stays on, and
+   * says so, because Reset pressed by someone blind must not leave them in
+   * silence. Open pages follow by themselves, as they follow any change.
+   */
+  async function resetEverything() {
+    const readerOn = Boolean(globals.screenReader);
+    const yes = await confirmDialog(
+      'Reset everything?',
+      'Everything you have switched on goes back off, on every website: your setup, each site’s own ' +
+        'changes, and any site you turned AccessiFlow off for. ' +
+        (readerOn ? 'The built-in screen reader stays on. ' : '') +
+        'You can answer the setup questions again at any time.',
+      'Reset everything'
+    );
+    if (!yes) return;
+
+    // Changes still waiting to be saved would come back after the reset.
+    clearTimeout(commitTimer);
+    commitTimer = null;
+    pending = {};
+    await Store.reset();
+    state = { setup: null, site: null };
+    settings = currentSettings();
+    Voice.setRate(settings.ttsRate || 1);
+    renderHome();
+    paintFromSettings();
+    announce('Everything is reset, on every website. AccessiFlow is back to how it starts.' +
+      (readerOn ? ' The built-in screen reader is still on.' : ''));
+  }
+
   function initDataActions() {
     $('#btnRunSetup').addEventListener('click', openSetup);
+    document.querySelectorAll('[data-reset-all]').forEach(button => {
+      button.addEventListener('click', resetEverything);
+    });
 
     $('#btnResetSettings').addEventListener('click', async () => {
       const yes = await confirmDialog(
@@ -1650,14 +1686,16 @@
         renderHome();
         paintFromSettings();
 
-        // AccessiFlow's own screen reader does not run in this panel, so the
-        // panel speaks for itself while it is on.
+        // With AccessiFlow's own screen reader on, it runs in this panel too
+        // (ui-voice.js starts it), so the panel reads with the same keys as
+        // any website, and speaks for itself as things change.
         if (globals.screenReader) {
           Voice.enable({ rate: settings.ttsRate || 1 });
           const paused = Boolean(state.site && state.site._off);
           Voice.say('AccessiFlow panel. ' +
             (paused ? 'Off for ' + shown + '. ' : 'On for ' + shown + '. ') +
-            'Your setup: ' + setupSentence(true) + ' Tab moves through the panel, and Escape closes it.');
+            'Your setup: ' + setupSentence(true) + ' The arrow keys read the panel, H jumps to a heading, ' +
+            'B to a button, Tab moves between controls, and Escape closes it.');
         }
       });
 

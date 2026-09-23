@@ -14,6 +14,10 @@
 //      visible, and Ctrl on its own stops the speech
 //   5. the popup's Home screen lays out in the real CSS cascade: four large
 //      buttons, no sideways scrolling, All settings one press away
+//   6. NVDA's keys work on AccessiFlow's own pages: on the setup page and in
+//      the popup the screen reader runs, the arrows read, H, B and X jump
+//   7. Reset everything in the popup reaches a website already open: its
+//      bigger text goes back to normal, and the screen reader stays on
 'use strict';
 
 const http = require('http');
@@ -104,6 +108,42 @@ async function inExtensionWorld(page, expression) {
 
     // ── 2. Keys only ────────────────────────────────────────────────────────
     await welcome.bringToFront();
+
+    // NVDA's keys on the setup page: the screen reader runs here too.
+    await welcome.evaluate(() => {
+      window.__said = [];
+      const speak = chrome.tts.speak.bind(chrome.tts);
+      chrome.tts.speak = (text, opts) => { window.__said.push(text); return speak(text, opts); };
+    });
+    const saidOnSetup = () => welcome.evaluate(() => window.__said[window.__said.length - 1] || '');
+    check(await welcome.evaluate(() => window.AccessiFlowUiVoice.readerOn()),
+      'the screen reader runs on the setup page, in the real extension');
+    await welcome.keyboard.press('ArrowDown');
+    await wait(150);
+    const downLine = await saidOnSetup();
+    check(/Choose as many as fit you/.test(downLine), 'the down arrow reads the line after the question: ' + downLine);
+    await welcome.keyboard.press('KeyX');
+    await wait(150);
+    const box = await saidOnSetup();
+    check(/^Low vision, check box, not checked/.test(box),
+      'X jumps to the first check box, named by its need: ' + box);
+    // The need's name is a line of its own in the real layout, then its help.
+    let help = '';
+    for (let i = 0; i < 3 && !/Bigger text, stronger colours/.test(help); i++) {
+      await welcome.keyboard.press('ArrowDown');
+      await wait(150);
+      help = await saidOnSetup();
+    }
+    check(/^Bigger text, stronger colours/.test(help),
+      'the down arrow reads on to its help, and the hidden key number is not read: ' + help);
+    await welcome.keyboard.press('KeyH');
+    await wait(150);
+    const heading = await saidOnSetup();
+    check(/heading level/.test(heading) || /No next heading/.test(heading), 'H moves by heading: ' + heading);
+    // Back to the question, as the page itself puts it, for the keys below.
+    await welcome.evaluate(() => window.AccessiFlowUiVoice.focusQuietly(document.getElementById('h-needs')));
+    await wait(100);
+
     await welcome.keyboard.press('2');
     check(await welcome.evaluate(() => document.getElementById('need-blind').checked), 'pressing 2 chooses "Blind"');
     await welcome.keyboard.press('Enter');
@@ -301,6 +341,78 @@ async function inExtensionWorld(page, expression) {
     check(allShown.home === 'none' && allShown.sections === 9 && allShown.focus === 'allTitle',
       'All settings replaces Home, shows every group, and takes focus: ' + JSON.stringify(allShown));
     check(popupErrors.length === 0, 'with no errors in the popup' + (popupErrors.length ? ': ' + popupErrors.join('; ') : ''));
+
+    // ── 6. The popup, read with NVDA's keys ─────────────────────────────────
+    await sw.evaluate(() => chrome.storage.local.set({ accessiflowScreenReader: true }));
+    const read = await browser.newPage();
+    await read.setViewport({ width: 420, height: 600 });
+    const readErrors = [];
+    read.on('pageerror', err => readErrors.push(err.message));
+    await read.evaluateOnNewDocument(() => {
+      window.__said = [];
+      const wrap = () => {
+        if (!window.chrome || !chrome.tts || chrome.tts.__wrapped) return;
+        const speak = chrome.tts.speak.bind(chrome.tts);
+        chrome.tts.speak = (text, opts) => { window.__said.push(text); return speak(text, opts); };
+        chrome.tts.__wrapped = true;
+      };
+      wrap();
+      document.addEventListener('DOMContentLoaded', wrap);
+    });
+    await read.goto('chrome-extension://' + extensionId + '/popup.html', { waitUntil: 'load' });
+    await wait(700);
+    const lastSaid = () => read.evaluate(() => window.__said[window.__said.length - 1] || '');
+    check(await read.evaluate(() => window.AccessiFlowUiVoice.readerOn()),
+      'with the built-in reader on, it runs in the popup too');
+    await read.keyboard.down('Control');
+    await read.keyboard.press('Home');
+    await read.keyboard.up('Control');
+    await read.keyboard.press('ArrowDown');
+    await wait(150);
+    const first = await lastSaid();
+    check(/heading level 1, AccessiFlow/.test(first), 'the down arrow reads the popup: ' + first);
+    await read.keyboard.press('KeyH');
+    await wait(150);
+    const next = await lastSaid();
+    check(/heading level 2/.test(next), 'H jumps to the next heading: ' + next);
+    await read.keyboard.press('KeyB');
+    await wait(150);
+    const button = await lastSaid();
+    check(/, button$/.test(button), 'B jumps to a button: ' + button);
+    check(readErrors.length === 0, 'with no errors while reading the popup' + (readErrors.length ? ': ' + readErrors.join('; ') : ''));
+
+    // ── 7. Reset everything reaches a website already open ──────────────────
+    await sw.evaluate(() => new Promise(done => chrome.storage.local.get('accessiflow_setup', d => {
+      const setup = d.accessiflow_setup;
+      setup.settings.textSize = 150;
+      chrome.storage.local.set({ accessiflow_setup: setup, 'settings_example.org': { _v: 2, _off: true } }, done);
+    })));
+    await page.bringToFront();
+    await wait(900);
+    const fontSize = () => page.evaluate(() => getComputedStyle(document.documentElement).fontSize);
+    const bigger = await fontSize();
+    await read.bringToFront();
+    await read.reload({ waitUntil: 'load' });
+    await wait(600);
+    await read.click('#btnHomeReset');
+    await wait(200);
+    const asked = await read.evaluate(() => !document.getElementById('dialogBackdrop').hidden &&
+      document.getElementById('dialogTitle').textContent);
+    await read.click('#dialogConfirm');
+    await wait(400);
+    await page.bringToFront();
+    await wait(900);
+    const normal = await fontSize();
+    const left = await sw.evaluate(() => new Promise(r => chrome.storage.local.get(null, r)));
+    check(asked === 'Reset everything?', 'the popup\'s Reset everything asks first: ' + asked);
+    check(bigger === '24px' && normal === '16px',
+      'and resetting puts a website already open back to normal text, with no reload: ' + bigger + ' then ' + normal);
+    check(!left.accessiflow_setup && !Object.keys(left).some(k => k.indexOf('settings_') === 0) &&
+      left.accessiflowScreenReader === true,
+      'the setup and every site\'s changes are gone, and the screen reader is still on');
+    const stillReading = await inExtensionWorld(page,
+      'Boolean(window.AccessiFlowScreenReader && window.AccessiFlowScreenReader._current && window.AccessiFlowScreenReader._current.active)');
+    check(stillReading, 'still reading that website, too');
   } catch (e) {
     failures.push('the run stopped: ' + e.message);
   } finally {

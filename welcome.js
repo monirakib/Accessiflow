@@ -10,6 +10,11 @@
 // see a Start button. Everything it says is also on screen, and everything
 // can be done with the keyboard: number keys choose needs, Enter moves on,
 // R repeats the question, and Escape silences the voice.
+//
+// While it talks, AccessiFlow's screen reader runs here too, so the page can
+// be read the way NVDA reads one: the arrows line by line, H to a heading,
+// B to a button, X to a check box. The keys above are this page's own and
+// stay so; the reader asks the page first (pageKey).
 'use strict';
 
 (function () {
@@ -54,7 +59,7 @@
     button.setAttribute('aria-pressed', String(on));
     $('#voiceLabel').textContent = on ? 'Voice on' : 'Voice off';
     if (on) {
-      Voice.enable({ rate: currentRate() });
+      Voice.enable({ rate: currentRate(), hostKey: pageKey });
       if (spoken) Voice.say('Voice on. ' + intro(step));
     } else {
       Voice.disable();
@@ -121,10 +126,7 @@
    */
   function focusQuietly(node) {
     if (!node) return;
-    const was = Voice.on;
-    Voice.on = false;
-    node.focus({ preventScroll: node.id === 'h-needs' });
-    Voice.on = was;
+    Voice.focusQuietly(node, { preventScroll: node.id === 'h-needs' });
   }
 
   // ── 1. Needs ────────────────────────────────────────────────────────────
@@ -148,8 +150,14 @@
       const num = el('span', 'need-num', item.number);
       num.setAttribute('aria-hidden', 'true');
 
+      // Named by the need alone and described by the rest, so a screen
+      // reader says "Low vision, check box" and then the help, not all of
+      // the help twice.
       const text = el('span', 'need-text');
-      text.appendChild(el('span', 'need-label', p.need));
+      const name = el('span', 'need-label', p.need);
+      name.id = 'name-' + p.id;
+      input.setAttribute('aria-labelledby', name.id);
+      text.appendChild(name);
       const desc = el('span', 'need-desc', p.desc + ' Key ' + item.number + '.');
       desc.id = descId;
       text.appendChild(desc);
@@ -334,6 +342,33 @@
 
   // ── Keys on this page ───────────────────────────────────────────────────
 
+  /**
+   * The keys this page tells people about. `target` is what the key would
+   * press: the focused element, or, with the screen reader running here,
+   * what its cursor is on. True if the key was used.
+   */
+  function pageKey(e, target) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return false;
+    if ((e.key === 'r' || e.key === 'R') && !e.shiftKey) {
+      Voice.say(intro(step));
+      return true;
+    }
+    if (step === 'needs' && /^[1-9]$/.test(e.key)) {
+      toggleNeedByNumber(e.key);
+      return true;
+    }
+    // Enter moves on, except on a button or a link, which Enter presses.
+    if (e.key === 'Enter') {
+      const tag = target && target.tagName;
+      if (tag === 'BUTTON' || tag === 'A' || tag === 'SUMMARY') return false;
+      if (step === 'needs') show('details');
+      else if (step === 'details') show('review');
+      else if (step === 'review') save();
+      return true;
+    }
+    return false;
+  }
+
   function onKeydown(e) {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const target = e.target;
@@ -341,28 +376,14 @@
     if (typing) return;
 
     if (e.key === 'Escape') {
+      // In the screen reader's focus mode (on the speed slider, say) Escape
+      // goes back to browse mode, as in NVDA, which is what anyone pressing
+      // it there means; it does not silence the page.
+      if (Voice.mode() === 'focus') return;
       if (Voice.on) { setVoice(false); announce('Voice off.'); }
       return;
     }
-    if ((e.key === 'r' || e.key === 'R') && !e.shiftKey) {
-      e.preventDefault();
-      Voice.say(intro(step));
-      return;
-    }
-    if (step === 'needs' && /^[1-9]$/.test(e.key)) {
-      e.preventDefault();
-      toggleNeedByNumber(e.key);
-      return;
-    }
-    // Enter moves on, except on a button or a link, which Enter presses.
-    if (e.key === 'Enter') {
-      const tag = target && target.tagName;
-      if (tag === 'BUTTON' || tag === 'A' || tag === 'SUMMARY') return;
-      e.preventDefault();
-      if (step === 'needs') show('details');
-      else if (step === 'details') show('review');
-      else if (step === 'review') save();
-    }
+    if (pageKey(e, target)) e.preventDefault();
   }
 
   // ── Pre-filling from an existing setup ──────────────────────────────────
@@ -423,7 +444,7 @@
       if (talk) {
         Voice.say('Welcome to AccessiFlow. This page talks, so you can set it up without ' +
           'seeing the screen. If you already use a screen reader, press Escape to turn ' +
-          'this voice off. ' + needsIntro());
+          'this voice off. The arrow keys read the page line by line, as in NVDA. ' + needsIntro());
       }
     });
   }

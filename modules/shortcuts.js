@@ -40,6 +40,9 @@
     { keys: 'Alt+Shift+P', what: 'Rewrite this page in plain language', letter: 'P' },
     { keys: 'Alt+Shift+O', what: 'Bring back the original text', letter: 'O' },
     { keys: 'Alt+Shift+G', what: 'Hear what a form will ask for, before you start', letter: 'G' },
+    { keys: 'Arrow keys', what: 'With the built-in screen reader on: read line by line, on websites and in AccessiFlow itself' },
+    { keys: 'H', what: 'With the built-in screen reader on: next heading. K link, B button, F form field, X check box, D landmark, and Shift goes back, as in NVDA' },
+    { keys: 'Insert+Down', what: 'With the built-in screen reader on: read everything from here' },
     { keys: 'Insert+H', what: 'With the built-in screen reader on: hear all of its keys' }
   ];
 

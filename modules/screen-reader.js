@@ -9,7 +9,11 @@
 //                 The arrow keys read it line by line, word by word, letter
 //                 by letter, and single letters jump: H to the next heading,
 //                 K link, B button, F form field, D landmark, and Shift goes
-//                 back. Enter or Space presses what the cursor is on.
+//                 back. The same letters as NVDA's, from its browseMode.py:
+//                 E X R C G L I T Q S M O N P, 1 to 9 for heading levels,
+//                 comma past the end of a list or table and Shift+comma to
+//                 its start, Page Down and Page Up 25 lines at a time.
+//                 Enter or Space presses what the cursor is on.
 //   Focus mode    keys go to the page, so text boxes, menus and sliders work.
 //                 Entered by itself when Tab or Enter lands in one, with a
 //                 high beep; Escape goes back, with a low one.
@@ -17,6 +21,8 @@
 //   Insert (or Caps Lock) is the reader's own key:
 //     Insert+Down  read everything from here       Control  stop talking
 //     Insert+Up    say this line again             Insert+Space  switch mode
+//     Insert+A and Insert+L do the same two, as on NVDA's laptop layout
+//     Insert+Shift+Space  single letter navigation off, for a site's own letter keys
 //     Insert+Tab   say what has focus               Insert+T  page title
 //     Insert+F2    let the next key through to the page
 //     Insert+S     speech on or off                Insert+H  list the keys
@@ -58,8 +64,21 @@
     F: ['field', 'form field'], E: ['edit', 'edit field'], X: ['checkbox', 'check box'],
     R: ['radio', 'radio button'], C: ['combo', 'combo box'], G: ['graphic', 'graphic'],
     D: ['landmark', 'landmark'], L: ['list', 'list'], I: ['listitem', 'list item'],
-    T: ['table', 'table'], Q: ['blockquote', 'block quote']
+    T: ['table', 'table'], Q: ['blockquote', 'block quote'], S: ['separator', 'separator'],
+    M: ['frame', 'frame'], O: ['embedded', 'embedded object'],
+    N: ['notLinkBlock', 'text after a block of links'], P: ['textParagraph', 'text paragraph']
   };
+
+  // NVDA's U and V find links by whether they have been visited. A page
+  // cannot tell: Chrome hides that from scripts, so that sites cannot read
+  // someone's history. Said plainly rather than guessed.
+  const VISITED_KEYS = { U: 1, V: 1 };
+
+  // How far Page Down and Page Up move: NVDA's "lines per page".
+  const PAGE_LINES = 25;
+
+  // What comma and Shift+comma move out of, innermost first, as in NVDA.
+  const CONTAINER_KINDS = { list: 1, table: 1, blockquote: 1, frame: 1, landmark: 1, dialog: 1 };
 
   // Widgets that need the arrow keys for themselves.
   const FOCUS_ROLES = {
@@ -78,11 +97,17 @@
 
   const HELP = 'Screen reader keys. Down and up arrows read line by line. ' +
     'Left and right read letter by letter, and with Control, word by word. ' +
-    'H jumps to the next heading, 1 to 6 to a heading level, K link, B button, F form field, ' +
-    'E edit field, X check box, D landmark, L list, T table, G graphic. Shift with any of them goes back. ' +
+    'H jumps to the next heading, 1 to 9 to a heading level, K link, B button, F form field, ' +
+    'E edit field, X check box, R radio button, C combo box, D landmark, L list, I list item, T table, ' +
+    'G graphic, Q block quote, S separator, M frame, O embedded object, P text paragraph, ' +
+    'and N skips past a block of links. Shift with any of them goes back. ' +
+    'Comma moves past the end of a list or table, and Shift and comma to its start. ' +
+    'Page down and page up move 25 lines. Home and End go to the start and end of the line, and with Control, of the page. ' +
     'Enter or Space presses what you are on. Tab moves between controls. ' +
-    'Insert and down arrow reads everything. Control stops. Shift pauses, and Shift again carries on. ' +
+    'Insert and down arrow, or Insert and A, reads everything. Insert and up arrow, or Insert and L, says the line again. ' +
+    'Control stops. Shift pauses, and Shift again carries on. ' +
     'Insert and Space switches between browse and focus mode; Escape leaves a text box. ' +
+    'Insert, Shift and Space turns single letter navigation off, so a site can have its own letter keys. ' +
     'Insert and F7 lists the headings, links, landmarks and fields. Insert, Control and F finds text. ' +
     'In a table, Control, Alt and the arrows move cell by cell. ' +
     'Insert and 1 turns on key help, to hear what any key does. ' +
@@ -196,6 +221,7 @@
       this._lastFind = '';
       this._tableCell = null;          // { el, index }: an empty cell the cursor is standing in
       this._helpMode = false;
+      this._letters = true;            // single letter navigation (Insert+Shift+Space)
       this._lastPath = '';
       this._navTimer = null;
       this._lastFocusAt = 0;
@@ -215,7 +241,12 @@
 
     /**
      * @param backend {speak(text) → Promise, stop()}: the voice
-     * @param options {intro: bool, viewer: bool}
+     * @param options {intro: bool, viewer: bool, quietStart: bool, hostKey(e, target) → bool}
+     *   quietStart  say nothing on starting: a page of AccessiFlow's own
+     *               greets the user itself
+     *   hostKey     the page's own keys, asked first in browse mode, with the
+     *               element the cursor would press. True means the page took
+     *               the key, and the reader leaves it at that.
      */
     enable(backend, options) {
       options = options || {};
@@ -268,6 +299,7 @@
       this._anchor();
       this.mode = needsFocusMode(active) ? 'focus' : 'browse';
 
+      if (options.quietStart) { log('on, ' + buf.length + ' lines'); return; }
       const counts = buf.count('heading') + ' headings, ' + buf.count('link') + ' links.';
       const title = document.title ? document.title + '. ' : '';
       this._speech.say((options.intro ? 'Screen reader on. ' : '') + title + counts +
@@ -303,6 +335,7 @@
       if (this._panel) { this._panel.close(false); this._panel = null; }
       clearTimeout(this._navTimer);
       this._helpMode = false;
+      this._letters = true;
       if (this._observer) { this._observer.disconnect(); this._observer = null; }
       clearTimeout(this._rebuildTimer);
       this._clearHighlight();
@@ -563,6 +596,15 @@
         return;
       }
 
+      // A page of AccessiFlow's own keeps the keys it tells the user about:
+      // the setup page's number keys choose a need, not a heading level.
+      const host = this._options.hostKey;
+      if (typeof host === 'function') {
+        let taken = false;
+        try { taken = !!host(e, this.cursorTarget()); } catch (err) { taken = false; }
+        if (taken) { this._eat(e); return; }
+      }
+
       if (this._browseCommand(e)) this._eat(e);
       else if (key !== 'Tab' && this._speech) this._speech.stop();
     }
@@ -587,6 +629,7 @@
     _modCommand(e) {
       if (e.key === 'ArrowDown') { this.sayAll(); return true; }
       if (e.key === 'ArrowUp') { this.repeat(); return true; }
+      if (e.key === ' ' && e.shiftKey) { this.toggleLetters(); return true; }
       if (e.key === ' ') { this._setMode(this.mode === 'focus' ? 'browse' : 'focus', true, true); return true; }
       if (e.key === 'Tab') { this._sayFocus(); return true; }
       if (e.key === 'F2') {
@@ -607,6 +650,8 @@
           this._say('Key help on. Press any key to hear what it does. Insert and 1 again to leave.');
           return true;
         case 'KeyE': this.openElementsList(); return true;
+        case 'KeyA': this.sayAll(); return true;       // NVDA's laptop layout
+        case 'KeyL': this.repeat(); return true;       // NVDA's laptop layout
         case 'KeyD': this.describePicture(); return true;
         case 'KeyT': this._say(document.title ? 'Title: ' + document.title : 'This page has no title'); return true;
         case 'KeyH': this._say(HELP); return true;
@@ -634,6 +679,11 @@
         case 'ArrowLeft': ctrl ? this.word(-1) : this.character(-1); return true;
         case 'Home': ctrl ? this.edge(-1) : this.lineEdge(-1); return true;
         case 'End': ctrl ? this.edge(1) : this.lineEdge(1); return true;
+        case 'PageDown':
+        case 'PageUp':
+          if (ctrl) return false;             // Control+Page Down changes tab
+          this.pageMove(e.key === 'PageDown' ? 1 : -1);
+          return true;
         case 'Enter':
         case ' ':
           if (ctrl || e.repeat) return !!e.repeat;
@@ -647,11 +697,23 @@
           return false;
       }
       if (ctrl) return false;                 // copy, paste, find: the browser's
+      // Single letter navigation off: letters, digits and commas are the site's.
+      if (!this._letters) return false;
 
       const letter = /^Key([A-Z])$/.exec(e.code || '');
-      const digit = /^Digit([1-6])$/.exec(e.code || '');
+      const digit = /^Digit([1-9])$/.exec(e.code || '');
       const direction = e.shiftKey ? -1 : 1;
+      if (e.code === 'Comma') {
+        if (direction > 0) this.containerEnd();
+        else this.containerStart();
+        return true;
+      }
       if (digit) { this.jump('heading' + digit[1], 'heading level ' + digit[1], direction); return true; }
+      if (letter && VISITED_KEYS[letter[1]]) {
+        if (this._speech) this._speech.tone('edge');
+        this._say('Visited links cannot be told apart from others here. K moves by link.');
+        return true;
+      }
       if (letter && QUICK[letter[1]]) {
         this.jump(QUICK[letter[1]][0], QUICK[letter[1]][1], direction);
         return true;
@@ -769,8 +831,61 @@
         this._say('No ' + (direction > 0 ? 'next ' : 'previous ') + name);
         return;
       }
-      const container = /^(landmark|list|listitem|table|blockquote)$/.test(kind);
+      const container = /^(landmark|list|listitem|table|blockquote|frame)$/.test(kind);
       this._go(i, 0, this._speechFor(buf.items[i], prev, false, container));
+    }
+
+    /** Page Down and Page Up: NVDA's "lines per page" at a time. */
+    pageMove(direction) {
+      const buf = this._buffer();
+      if (!buf.length) { this._say('Nothing to read on this page'); return; }
+      const at = this._cursor.index;
+      const next = Math.max(0, Math.min(buf.length - 1, at + direction * PAGE_LINES));
+      if (next === at) { this._edgeOf(direction); return; }
+      const prev = this._item();
+      this._go(next, 0, this._speechFor(buf.items[next], prev, true));
+    }
+
+    /** The list, table, landmark or frame the cursor is in: the innermost. */
+    _container() {
+      const item = this._item();
+      if (!item) return null;
+      for (let i = item.containers.length - 1; i >= 0; i--) {
+        if (CONTAINER_KINDS[item.containers[i].kind] && item.containers[i].start > -1) return item.containers[i];
+      }
+      return null;
+    }
+
+    /** Shift+comma: back to the start of the list or table the cursor is in. */
+    containerStart() {
+      const buf = this._buffer();
+      const c = this._container();
+      if (!c) { this._say('Not in a container'); return; }
+      const prev = this._item();
+      this._go(c.start, 0, this._speechFor(buf.items[c.start], prev, false, true));
+    }
+
+    /** Comma: on to the first line after the list or table the cursor is in. */
+    containerEnd() {
+      const buf = this._buffer();
+      const c = this._container();
+      if (!c) { this._say('Not in a container'); return; }
+      let i = Math.max(c.start, this._cursor.index);
+      while (i < buf.length && buf.items[i].containers.indexOf(c) !== -1) i++;
+      if (i >= buf.length) { this._edgeOf(1); return; }
+      const prev = this._item();
+      this._go(i, 0, this._speechFor(buf.items[i], prev, true));
+    }
+
+    /**
+     * Insert+Shift+Space. With it off, letters go to the site, for web apps
+     * with single-key shortcuts of their own (Gmail, YouTube); the arrow keys
+     * still read.
+     */
+    toggleLetters() {
+      this._letters = !this._letters;
+      if (this._frames && this._frames.setLetters) this._frames.setLetters(this._letters);
+      this._say(this._letters ? 'Single letter navigation on' : 'Single letter navigation off');
     }
 
     repeat() {
@@ -815,6 +930,54 @@
      */
     sayAfter(text) {
       if (this.active && this._speech && text) this._speech.queue(text);
+    }
+
+    // ── For AccessiFlow's own pages ────────────────────────────────────────
+    //
+    // The popup and the setup page run this reader too (through ui-voice.js),
+    // so the keys a blind user knows work there as on any website. These are
+    // what those pages need from it.
+
+    /** Says this now, cutting off what was being said: the page telling the user what happened. */
+    say(text) {
+      return this._say(text);
+    }
+
+    /** What Enter would press where the cursor is; null on plain text. */
+    cursorTarget() {
+      if (!this.active) return null;
+      this._buffer();
+      const item = this._item();
+      if (!item || item.remote || item.pendingFrame) return null;
+      const el = this._targetOf(item);
+      if (!el || el.nodeType !== 1) return null;
+      if (item.kind === 'object' || item.link) return el;
+      return el.matches && el.matches(CLICKABLE) ? el : null;
+    }
+
+    /**
+     * Gives focus without saying so, and brings the cursor with it: for a
+     * page about to say more itself, such as the setup page moving on to its
+     * next question. Starting one sentence to cut it off at once is heard as
+     * a stutter.
+     */
+    focusSilently(el, opts) {
+      if (!el || typeof el.focus !== 'function') return;
+      this._quiet = el;
+      try { el.focus(opts || {}); } catch (e) { /* ok */ }
+      this._quiet = null;
+      if (!this.active) return;
+      // The page usually showed what it focuses a moment ago: take those changes now.
+      this._ignoreOwnChanges();
+      const buf = this._buffer(this._dirty);
+      const line = buf.lineOf(el);
+      if (line > -1) {
+        this._setCursor(line, 0);
+        this._show(this._item());
+      }
+      this._moved = false;
+      const wanted = needsFocusMode(el) ? 'focus' : 'browse';
+      if (wanted !== this.mode) this._setMode(wanted, false);
     }
 
     // ── Pressing things ────────────────────────────────────────────────────
@@ -930,7 +1093,9 @@
       } else if (item && index > -1) {
         parts.push(this._speechFor(item, prev, false));
       }
-      if (parts.length) this._say(parts.join(', '));
+      // The page's longer help for the control, after its name, as NVDA reads it.
+      const description = N() && N().descriptionOf ? N().descriptionOf(el) : '';
+      if (parts.length) this._say(parts.join(', ') + (description ? '. ' + description : ''));
     }
 
     /**
@@ -1391,7 +1556,8 @@
       if (mod) {
         const byKey = {
           ArrowDown: 'Say all: reads from here to the end of the page', ArrowUp: 'Says the current line again',
-          ' ': 'Switches between browse mode and focus mode', Tab: 'Says what has keyboard focus',
+          ' ': shift ? 'Turns single letter navigation off or on' : 'Switches between browse mode and focus mode',
+          Tab: 'Says what has keyboard focus',
           F2: 'Lets the next key through to the page', F7: 'Opens the elements list',
           F3: shift ? 'Finds the previous match' : 'Finds the next match'
         };
@@ -1399,6 +1565,7 @@
         const byCode = { KeyT: 'Says the page title', KeyH: 'Says the list of screen reader keys',
           KeyS: 'Turns speech off or on', KeyE: 'Opens the elements list',
           KeyD: 'Describes the picture the cursor is on',
+          KeyA: 'Say all: reads from here to the end of the page', KeyL: 'Says the current line again',
           KeyF: e.ctrlKey ? 'Finds text on the page' : '' };
         if (byCode[e.code]) return 'Insert ' + keyName(e) + ', ' + byCode[e.code];
         return 'Insert ' + keyName(e) + ', no command';
@@ -1413,12 +1580,19 @@
         ArrowRight: ctrl ? 'Next word' : 'Next character', ArrowLeft: ctrl ? 'Previous word' : 'Previous character',
         Home: ctrl ? 'Top of the page' : 'Start of the line', End: ctrl ? 'Bottom of the page' : 'End of the line',
         Enter: 'Presses what the cursor is on', ' ': 'Presses what the cursor is on',
-        Tab: shift ? 'Previous control' : 'Next control', Escape: 'Stops speech, or leaves focus mode'
+        Tab: shift ? 'Previous control' : 'Next control', Escape: 'Stops speech, or leaves focus mode',
+        PageDown: ctrl ? '' : 'Moves 25 lines on', PageUp: ctrl ? '' : 'Moves 25 lines back'
       };
       if (plain[e.key]) return keyName(e) + ', ' + plain[e.key];
-      const digit = /^Digit([1-6])$/.exec(e.code || '');
+      if (e.code === 'Comma' && !ctrl) {
+        return (shift ? 'Shift comma, moves to the start of' : 'Comma, moves past the end of') + ' the list, table or landmark';
+      }
+      const digit = /^Digit([1-9])$/.exec(e.code || '');
       if (digit && !ctrl) return keyName(e) + ', ' + (shift ? 'previous' : 'next') + ' heading at level ' + digit[1];
       const letter = /^Key([A-Z])$/.exec(e.code || '');
+      if (letter && VISITED_KEYS[letter[1]] && !ctrl) {
+        return letter[1] + ', visited and unvisited links cannot be told apart here; K moves by link';
+      }
       if (letter && QUICK[letter[1]] && !ctrl) {
         return letter[1] + (shift ? ' with Shift' : '') + ', ' + (shift ? 'previous ' : 'next ') + QUICK[letter[1]][1];
       }

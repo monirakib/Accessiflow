@@ -65,9 +65,42 @@ the thing that would read the switch out was running. Now there is one
   for this site, the setup, four large buttons (read, stop, summarise,
   describe the pictures) and at most six settings chosen for the user's
   needs. Everything else is under All settings, with search, as before.
-- **The popup and setup page speak for themselves** while the built-in screen
-  reader is on (`ui-voice.js`), since that reader cannot run inside extension
-  pages.
+- **Reset everything.** A button at the foot of the popup's Home screen,
+  and another under All settings, turns off everything the user switched on,
+  on every website, after asking: the setup, each site's own changes, and
+  any site AccessiFlow was turned off for (`AccessiFlowSettings.reset()`).
+  Open tabs follow at once. The built-in screen reader stays on, so a blind
+  user who presses it is not left in silence; the popup's own look and the
+  AI consent stay too, since they change no website.
+- **NVDA's keys on AccessiFlow's own pages.** The popup and the setup page
+  run the same screen reader as websites do (`ui-voice.js` starts it and
+  gives it `chrome.tts` as its voice). With the reader on, the arrow keys read
+  them line by line, <kbd>H</kbd> jumps to a heading, <kbd>B</kbd> to a
+  button, <kbd>X</kbd> to a check box, <kbd>Space</kbd> presses, and
+  <kbd>Insert</kbd>+<kbd>Down</kbd> reads everything. Before this, a blind
+  tester could only move through them with <kbd>Tab</kbd>. The setup page's
+  own keys still come first: numbers choose a need, <kbd>R</kbd> repeats the
+  question, <kbd>Enter</kbd> moves on. <kbd>Escape</kbd> in focus mode (on
+  the speed slider, say) goes back to browse mode rather than silencing the
+  page.
+- **The rest of NVDA's browse mode keys**, taken from NVDA's `browseMode.py`:
+  <kbd>S</kbd> separator, <kbd>M</kbd> frame, <kbd>O</kbd> embedded object,
+  <kbd>N</kbd> past a block of links, <kbd>P</kbd> text paragraph,
+  <kbd>1</kbd> to <kbd>9</kbd> heading levels, <kbd>,</kbd> past the end of a
+  list, table or landmark and <kbd>Shift</kbd>+<kbd>,</kbd> back to its start,
+  <kbd>Page Down</kbd>/<kbd>Page Up</kbd> 25 lines (NVDA's lines per page),
+  <kbd>Insert</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> to switch single letter
+  navigation off for sites with their own letter keys, and the laptop
+  layout's <kbd>Insert</kbd>+<kbd>A</kbd> (say all) and
+  <kbd>Insert</kbd>+<kbd>L</kbd> (current line). <kbd>U</kbd> and
+  <kbd>V</kbd> only say that visited links cannot be told apart: Chrome hides
+  that from pages, so a site cannot read someone's history.
+- **Names as Chrome works them out.** Text hidden with `aria-hidden`,
+  `hidden` or `display: none` is no longer part of a name (a stepper button
+  said "minus, Less text size", a setup choice "1 Low vision"); block
+  elements are separate words; a list box inside its label is not named by
+  its options. A switch is "on" or "off" rather than "checked", and focus
+  landing on a control reads its description after its name, as NVDA does.
 
 ## Layout
 

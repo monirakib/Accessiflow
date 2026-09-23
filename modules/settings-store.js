@@ -292,6 +292,28 @@
     });
   }
 
+  /**
+   * The keys Reset removes: the setup and every site's own changes (a
+   * site's pause among them). Not the built-in screen reader's switch:
+   * pressed by someone blind, Reset must not take away the voice they need
+   * to set anything up again. Not the popup's own look, the AI consent or a
+   * downloaded voice either; none of those change a website.
+   */
+  function resetKeys(keys) {
+    return (keys || []).filter(key => key === SETUP_KEY || key.indexOf(SITE_PREFIX) === 0);
+  }
+
+  /** Everything back to how a new install starts, on every site. Resolves with how many keys went. */
+  function reset() {
+    return new Promise(done => {
+      chrome.storage.local.get(null, data => {
+        const keys = resetKeys(Object.keys(data || {}));
+        if (!keys.length) { done(0); return; }
+        chrome.storage.local.remove(keys, () => done(keys.length));
+      });
+    });
+  }
+
   function save(host, state) {
     const out = {};
     if (state.setup) out[SETUP_KEY] = state.setup;
@@ -319,6 +341,8 @@
     addNeed: addNeed,
     homeControls: homeControls,
     load: load,
-    save: save
+    save: save,
+    resetKeys: resetKeys,
+    reset: reset
   };
 })(typeof globalThis !== 'undefined' ? globalThis : self);

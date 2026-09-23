@@ -26,13 +26,14 @@ const listeners = [];
 const chrome = {
   storage: { local: {
     get: (keys, cb) => {
-      const list = typeof keys === 'string' ? [keys] : keys;
+      // null asks for everything, as in Chrome.
+      const list = keys === null ? Object.keys(store) : typeof keys === 'string' ? [keys] : keys;
       const out = {};
       list.forEach(k => { if (k in store) out[k] = JSON.parse(JSON.stringify(store[k])); });
       cb(out);
     },
     set: (obj, cb) => { Object.assign(store, JSON.parse(JSON.stringify(obj))); if (cb) cb(); },
-    remove: (k, cb) => { delete store[k]; if (cb) cb(); }
+    remove: (keys, cb) => { [].concat(keys).forEach(k => { delete store[k]; }); if (cb) cb(); }
   } },
   tabs: {
     query: (q, cb) => cb([{ id: 7, url: 'https://example.com/page' }]),
@@ -397,6 +398,8 @@ const change = (node, value) => {
 
   await typeSearch('change my setup');
   check(!doc.getElementById('section-data').hidden, '"change my setup" finds the setup section');
+  await typeSearch('turn off everything');
+  check(!doc.getElementById('section-data').hidden, '"turn off everything" finds Reset everything');
 
   doc.getElementById('btnClearSearch').click();
   await wait(260);
@@ -406,6 +409,52 @@ const change = (node, value) => {
   const css = fs.readFileSync(path.join(ROOT, 'popup.css'), 'utf8');
   check(/(^|\n)\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/.test(css),
     'popup.css forces [hidden] to display: none');
+
+  // ── Reset everything ──────────────────────────────────────────────────────
+  // Last, because it empties the setup every check above relies on.
+  {
+    doc.getElementById('btnBackHome').click();
+    store['settings_paused.example'] = { _v: 2, _off: true };
+    store.accessiflow_ui_prefs = { theme: 'dark', scale: 110 };
+    const homeReset = doc.getElementById('btnHomeReset');
+    const allReset = doc.getElementById('btnResetAll');
+    check(homeReset && !homeReset.closest('[hidden]') && /Reset everything/.test(homeReset.textContent),
+      'Home has a Reset everything button, in plain sight');
+    check(allReset && allReset.closest('#body-data'), 'and All settings has one beside Forget this site\'s changes');
+    check(doc.getElementById('highContrast').checked, 'high contrast is on before the reset');
+
+    spokenByPanel.length = 0;
+    homeReset.focus();            // pressed from the keyboard, as a blind user would
+    homeReset.click();
+    await wait(10);
+    const backdrop = doc.getElementById('dialogBackdrop');
+    check(!backdrop.hidden && doc.getElementById('dialogTitle').textContent === 'Reset everything?',
+      'pressing it asks first');
+    check(/on every website/.test(doc.getElementById('dialogBody').textContent) &&
+      /The built-in screen reader stays on/.test(doc.getElementById('dialogBody').textContent),
+      'saying it covers every website and that the screen reader stays on');
+    check(doc.activeElement === doc.getElementById('dialogConfirm'), 'with focus on the answer');
+    doc.getElementById('dialogCancel').click();
+    await wait(10);
+    check(store.accessiflow_setup && store['settings_paused.example'] && doc.activeElement === homeReset,
+      'Cancel leaves everything as it was, and focus goes back to the button');
+
+    homeReset.click();
+    await wait(10);
+    doc.getElementById('dialogConfirm').click();
+    await wait(30);
+    check(!('accessiflow_setup' in store) && !Object.keys(store).some(k => k.indexOf('settings_') === 0),
+      'Reset everything removes the setup and every site\'s changes, the paused site too');
+    check(store.accessiflowScreenReader === true && doc.getElementById('screenReader').checked,
+      'the built-in screen reader stays on');
+    check(store.accessiflow_ui_prefs && store.accessiflow_ui_prefs.theme === 'dark', 'and so does the popup\'s own look');
+    check(!doc.getElementById('highContrast').checked && doc.getElementById('textSize').value === '100',
+      'every control shows it: high contrast off, text back to 100%');
+    check(doc.getElementById('siteOn').checked && doc.getElementById('setupNeeds').textContent === 'Not set up yet.',
+      'Home shows the site on and no setup');
+    check(spokenByPanel.some(s => /Everything is reset, on every website/.test(s.text) && /screen reader is still on/.test(s.text)),
+      'and it says what it did, out loud: ' + ((spokenByPanel.find(s => /Everything is reset/.test(s.text)) || {}).text || ''));
+  }
 
   check(uncaught.length === 0, 'still no uncaught errors' + (uncaught.length ? ': ' + uncaught.join('; ') : ''));
   finish();

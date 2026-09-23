@@ -36,14 +36,64 @@
 
   const clean = text => String(text || '').replace(/\s+/g, ' ').trim();
 
+  const SKIP_IN_TEXT = { SCRIPT: 1, STYLE: 1, TEMPLATE: 1, NOSCRIPT: 1 };
+
+  // Tags whose text runs on from the text before it. Any other element starts
+  // a new word, the way Chrome joins the parts of a name: without it, two
+  // spans laid out as separate lines are read as one word ("visionBigger").
+  const INLINE_TAGS = {
+    A: 1, ABBR: 1, B: 1, BDI: 1, BDO: 1, CITE: 1, CODE: 1, DATA: 1, DFN: 1, EM: 1, FONT: 1, I: 1,
+    KBD: 1, LABEL: 1, MARK: 1, Q: 1, S: 1, SAMP: 1, SMALL: 1, SPAN: 1, STRONG: 1, SUB: 1, SUP: 1,
+    TIME: 1, U: 1, VAR: 1, WBR: 1
+  };
+
+  function styleOf(el) {
+    try {
+      const win = (el.ownerDocument && el.ownerDocument.defaultView) || root;
+      return win.getComputedStyle ? win.getComputedStyle(el) : null;
+    } catch (e) { return null; }
+  }
+
+  /**
+   * The text inside an element as a screen reader hears it. What is hidden
+   * from speech is left out (aria-hidden, the hidden attribute, display:
+   * none), which is how an icon's "−" or a decorative "1" stays out of a
+   * button's name, as it does in Chrome's; and so is anything `skip` says,
+   * such as the control a label is naming.
+   */
+  function spokenText(node, skip) {
+    let out = '';
+    const walk = n => {
+      if (out.length > MAX_TEXT * 2) return;
+      if (n.nodeType === 3) { out += n.data; return; }
+      if (n.nodeType !== 1 || SKIP_IN_TEXT[n.tagName] || (skip && skip(n))) return;
+      if (n.hidden || n.getAttribute('aria-hidden') === 'true') return;
+      const style = styleOf(n);
+      if (style && (style.display === 'none' || style.visibility === 'hidden')) return;
+      const block = style && style.display ? !/^inline/.test(style.display) : !INLINE_TAGS[n.tagName];
+      if (block) out += ' ';
+      for (let c = n.firstChild; c; c = c.nextSibling) walk(c);
+      if (block) out += ' ';
+    };
+    for (let c = node.firstChild; c; c = c.nextSibling) walk(c);
+    return clean(out);
+  }
+
+  // Referenced by aria-labelledby, an element counts even if hidden itself,
+  // as the name calculation says; what is hidden inside it still does not.
   function fromIds(el, attribute) {
     const ids = clean(el.getAttribute(attribute));
     if (!ids) return '';
     return ids.split(' ').map(id => {
       const target = el.ownerDocument.getElementById(id);
-      return target ? clean(target.textContent) : '';
+      return target ? spokenText(target) : '';
     }).filter(Boolean).join(' ');
   }
+
+  // A label that holds its control as well as its text names the control by
+  // the text alone: a select inside one is not named by all its options.
+  const CONTROLS_IN_LABEL = 'input, select, textarea, output';
+  const isControl = n => !!(n.matches && n.matches(CONTROLS_IN_LABEL));
 
   function labelFor(el) {
     const doc = el.ownerDocument;
@@ -52,11 +102,11 @@
       // would choke on, and CSS.escape does not exist outside a browser.
       const labels = doc.getElementsByTagName('label');
       for (let i = 0; i < labels.length; i++) {
-        if (labels[i].getAttribute('for') === el.id) return clean(labels[i].textContent);
+        if (labels[i].getAttribute('for') === el.id) return spokenText(labels[i], isControl);
       }
     }
     const wrapping = el.closest ? el.closest('label') : null;
-    return wrapping ? clean(wrapping.textContent) : '';
+    return wrapping ? spokenText(wrapping, isControl) : '';
   }
 
   /**
@@ -103,7 +153,7 @@
              clean(el.getAttribute('name'));
     }
 
-    const own = clean(el.textContent);
+    const own = spokenText(el);
     if (own) return own.length > MAX_TEXT ? own.slice(0, MAX_TEXT) + '…' : own;
 
     // A link or button whose content is only a picture is named by that
@@ -158,11 +208,14 @@
     // "not checked" would describe a control the user cannot see.
     const ownRole = (el.getAttribute('role') || '').toLowerCase();
     const stillACheckBox = !ownRole || /^(checkbox|radio|switch|menuitemcheckbox|menuitemradio)$/.test(ownRole);
+    // A switch is on or off, as NVDA says it, not checked.
+    const onOff = ownRole === 'switch';
     if (tag === 'INPUT' && (type === 'checkbox' || type === 'radio') && stillACheckBox) {
-      states.push(el.checked ? 'checked' : 'not checked');
+      states.push(onOff ? (el.checked ? 'on' : 'off') : el.checked ? 'checked' : 'not checked');
     } else if (el.hasAttribute('aria-checked')) {
       const value = el.getAttribute('aria-checked');
-      states.push(value === 'true' ? 'checked' : value === 'mixed' ? 'partly checked' : 'not checked');
+      if (onOff) states.push(value === 'true' ? 'on' : 'off');
+      else states.push(value === 'true' ? 'checked' : value === 'mixed' ? 'partly checked' : 'not checked');
     }
 
     if (el.hasAttribute('aria-expanded')) {
@@ -235,7 +288,31 @@
     return [name, role, state].filter(Boolean).join(', ');
   }
 
-  root.AccessiFlowNaming = { describeElement, accessibleName, roleOf, stateOf, targetFor, isPlaceholder };
+  /**
+   * The longer help a page gives a control (aria-describedby, or
+   * aria-description), which NVDA says after the name when focus lands on
+   * it: "Email, edit, required, blank. We only use it for your receipt."
+   * Parts hidden from speech are left out, and so is a description that
+   * only repeats the name.
+   */
+  function descriptionOf(node) {
+    const el = targetFor(node);
+    if (!el || !el.getAttribute) return '';
+    let text = '';
+    const ids = clean(el.getAttribute('aria-describedby'));
+    const doc = el.ownerDocument || root.document;
+    if (ids && doc) {
+      text = clean(ids.split(' ').map(id => {
+        const ref = doc.getElementById(id);
+        return ref ? spokenText(ref) : '';
+      }).join(' '));
+    }
+    if (!text) text = clean(el.getAttribute('aria-description'));
+    if (!text || text === clean(accessibleName(el))) return '';
+    return text;
+  }
+
+  root.AccessiFlowNaming = { describeElement, descriptionOf, accessibleName, roleOf, stateOf, targetFor, isPlaceholder };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = root.AccessiFlowNaming;

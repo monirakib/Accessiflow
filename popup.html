@@ -149,6 +149,14 @@
         </span>
         <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-next"/></svg>
       </button>
+
+      <!-- Reset, where anyone can find it. It asks first. -->
+      <button type="button" id="btnHomeReset" class="btn btn-quiet btn-full btn-next btn-reset" data-reset-all>
+        <span class="btn-next-text">
+          <span>Reset everything</span>
+          <span class="btn-hint">Turn off all you have switched on, on every website</span>
+        </span>
+      </button>
     </div>
 
     <!-- ════ All settings ═════════════════════════════════════════════ -->
@@ -331,6 +339,7 @@
           <p class="panel-note">
             Your setup applies on every website. A site can keep its own
             changes on top, and forgetting them puts it back on your setup.
+            Reset everything turns off all you have switched on, everywhere.
           </p>
           <div class="stack">
             <button type="button" class="btn btn-quiet btn-full" id="btnRunSetup">Answer the setup questions again</button>
@@ -338,6 +347,7 @@
             <button type="button" class="btn btn-quiet btn-full" id="btnImportSettings">Load a setup from a file</button>
             <input type="file" id="importFile" accept=".json" hidden>
             <button type="button" class="btn btn-danger btn-full" id="btnResetSettings">Forget this site&rsquo;s own changes</button>
+            <button type="button" class="btn btn-danger btn-full" id="btnResetAll" data-reset-all>Reset everything, on every website</button>
           </div>
         </div>
       </section>
@@ -371,6 +381,16 @@
   <script src="popup-schema.js"></script>
   <script src="modules/settings-store.js"></script>
   <script src="modules/shortcuts.js"></script>
+  <!-- AccessiFlow's screen reader, the same one as on websites, so the keys a
+       blind user knows from NVDA (arrows, H, B, Insert+Down) work here too.
+       ui-voice.js starts it while the reader is on. -->
+  <script src="modules/naming.js"></script>
+  <script src="modules/page-actions.js"></script>
+  <script src="modules/sr-buffer.js"></script>
+  <script src="modules/sr-speech.js"></script>
+  <script src="modules/sr-table.js"></script>
+  <script src="modules/sr-dialogs.js"></script>
+  <script src="modules/screen-reader.js"></script>
   <script src="ui-voice.js"></script>
   <script src="popup.js"></script>
 </body>

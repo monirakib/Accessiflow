@@ -17,10 +17,13 @@ const sandbox = {
     storage: { local: {
       get: (keys, cb) => {
         const out = {};
-        [].concat(keys).forEach(k => { if (k in store) out[k] = JSON.parse(JSON.stringify(store[k])); });
+        // null asks for everything, as in Chrome.
+        (keys === null ? Object.keys(store) : [].concat(keys))
+          .forEach(k => { if (k in store) out[k] = JSON.parse(JSON.stringify(store[k])); });
         cb(out);
       },
-      set: (obj, cb) => { Object.assign(store, JSON.parse(JSON.stringify(obj))); if (cb) cb(); }
+      set: (obj, cb) => { Object.assign(store, JSON.parse(JSON.stringify(obj))); if (cb) cb(); },
+      remove: (keys, cb) => { [].concat(keys).forEach(k => { delete store[k]; }); if (cb) cb(); }
     } }
   }
 };
@@ -128,6 +131,24 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   await S.save('old.example', { setup: setup, site: { _v: 2, textSize: 110 } });
   check(store.accessiflow_setup.settings.textSize === 130 && store['settings_old.example'].textSize === 110,
     'saving writes the setup and the site under their own keys');
+
+  // ── Reset everything ──────────────────────────────────────────────────────
+  store['settings_paused.example'] = { _v: 2, _off: true };
+  store.accessiflowScreenReader = true;
+  store.accessiflow_ui_prefs = { theme: 'dark', scale: 120 };
+  store.accessiflow_ai_consent = true;
+  const removed = await S.reset();
+  check(!('accessiflow_setup' in store) && !Object.keys(store).some(k => k.indexOf('settings_') === 0),
+    'reset removes the setup and every site\'s own changes, pauses included: ' + removed + ' keys');
+  check(store.accessiflowScreenReader === true,
+    'but leaves the built-in screen reader on, so a blind user is not left in silence');
+  check(store.accessiflow_ui_prefs.theme === 'dark' && store.accessiflow_ai_consent === true,
+    'and the popup\'s own look and the AI consent, which change no website');
+  const after = S.resolve(null, null).settings;
+  check(same(after, S.defaults()), 'after which every site gets the settings a new install starts with');
+  check(await S.reset() === 0, 'and a second reset has nothing left to remove');
+  check(same(S.resetKeys(['accessiflow_setup', 'settings_a.org', 'accessiflowScreenReader', 'voicePanelSound']),
+    ['accessiflow_setup', 'settings_a.org']), 'resetKeys picks only the setup and the site keys');
 
   console.log('\n=== PASS (' + ok.length + ') ===');
   ok.forEach(m => console.log('  + ' + m));

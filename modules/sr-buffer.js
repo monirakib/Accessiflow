@@ -525,11 +525,62 @@
     list: it => it.containers.some(c => c.kind === 'list' && c.start === it.index),
     listitem: it => it.containers.some(c => c.kind === 'listitem' && c.start === it.index),
     table: it => it.containers.some(c => c.kind === 'table' && c.start === it.index),
-    blockquote: it => it.containers.some(c => c.kind === 'blockquote' && c.start === it.index)
+    blockquote: it => it.containers.some(c => c.kind === 'blockquote' && c.start === it.index),
+    separator: it => it.kind === 'object' && it.role === 'separator',
+    frame: it => (it.kind === 'object' && it.role === 'frame') ||
+      it.containers.some(c => c.kind === 'frame' && c.start === it.index),
+    // NVDA's O: audio and video players, and what is embedded in a frame.
+    embedded: it => (it.kind === 'object' && it.role === 'media') || KINDS.frame(it)
   };
-  for (let n = 1; n <= 6; n++) {
+  for (let n = 1; n <= 9; n++) {
     KINDS['heading' + n] = it => KINDS.heading(it) && it.heading.level === n;
   }
+
+  // Kinds that depend on the lines around them, not on one line alone.
+
+  // NVDA's N: the text between two links, when there is enough of it to be
+  // more than a separator in a menu (NOT_LINK_BLOCK_MIN_LEN in browseMode.py).
+  // It lands where the text starts, which is how the navigation at the top
+  // of a site is skipped in one key press.
+  const NOT_LINK_BLOCK_MIN_LEN = 30;
+
+  function notLinkBlocks(items) {
+    const links = [];               // [first line, last line] of each link
+    items.forEach(it => {
+      if (!it.link) return;
+      const last = links[links.length - 1];
+      if (last && last.link === it.link && last.end === it.index - 1) last.end = it.index;
+      else links.push({ link: it.link, start: it.index, end: it.index });
+    });
+    const out = [];
+    for (let i = 0; i + 1 < links.length; i++) {
+      const from = links[i].end + 1;
+      const to = links[i + 1].start;
+      let length = 0;
+      for (let j = from; j < to; j++) length += (items[j].text || '').length;
+      if (from < to && length >= NOT_LINK_BLOCK_MIN_LEN) out.push(from);
+    }
+    return out;
+  }
+
+  // NVDA's P: a paragraph of prose, told from a menu or a caption by having
+  // a sentence in it (its textParagraphRegex looks for the same endings).
+  const SENTENCE_END = /[.!?…।]["'”’)\]]*(\s|$)/;
+
+  function textParagraphs(items) {
+    const out = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind !== 'text' || it.link || it.heading) continue;
+      if (i > 0 && items[i - 1].el === it.el) continue;          // not the paragraph's first line
+      let text = '';
+      for (let j = i; j < items.length && items[j].el === it.el; j++) text += ' ' + items[j].text;
+      if (SENTENCE_END.test(text)) out.push(i);
+    }
+    return out;
+  }
+
+  const WHOLE_KINDS = { notLinkBlock: notLinkBlocks, textParagraph: textParagraphs };
 
   class Buffer {
     constructor(items, containers, firstIndex, whole, seen) {
@@ -617,7 +668,8 @@
     indexOf(kind) {
       if (!this._index[kind]) {
         const test = KINDS[kind];
-        this._index[kind] = test ? this.items.filter(test).map(it => it.index) : [];
+        this._index[kind] = WHOLE_KINDS[kind] ? WHOLE_KINDS[kind](this.items)
+          : test ? this.items.filter(test).map(it => it.index) : [];
       }
       return this._index[kind];
     }
