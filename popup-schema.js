@@ -23,82 +23,15 @@ const SCHEMA = {
   profiles: (typeof globalThis !== 'undefined' && globalThis.ACCESSIFLOW_PROFILES) || [],
 
   /**
-   * Disability types the user can filter by. Each one names the setting
-   * sections that help with it, most useful first, and the popup shows only
-   * those. Nine sections is a lot to read through when three of them matter
-   * to you, so this is the difference between finding a setting and giving up.
-   * Every section id below must exist in `sections`, and between them these
-   * lists must cover all of them, or a setting becomes unreachable.
-   */
-  audiences: [
-    {
-      id: 'blind', icon: 'sound',
-      label: 'Blind, or using a screen reader',
-      sections: ['listening', 'reading', 'moving']
-    },
-    {
-      id: 'lowvision', icon: 'eye',
-      label: 'Low vision',
-      sections: ['seeing', 'moving', 'reading']
-    },
-    {
-      id: 'motor', icon: 'hand',
-      label: 'Hand movement or tremor',
-      sections: ['moving', 'speaking']
-    },
-    {
-      id: 'cognitive', icon: 'book',
-      label: 'Dyslexia, reading or memory',
-      sections: ['reading', 'seeing', 'calm']
-    },
-    {
-      id: 'attention', icon: 'focus',
-      label: 'Attention and focus',
-      sections: ['calm', 'reading']
-    },
-    {
-      id: 'hearing', icon: 'ear',
-      label: 'Deaf or hard of hearing',
-      sections: ['hearing', 'reading']
-    },
-    {
-      id: 'speech', icon: 'chat',
-      label: 'Difficulty speaking or typing',
-      sections: ['speaking', 'listening']
-    },
-    {
-      id: 'seizure', icon: 'shield',
-      label: 'Seizures or motion sickness',
-      sections: ['safety', 'seeing', 'calm']
-    },
-    {
-      id: 'autism', icon: 'focus',
-      label: 'Autism or sensory sensitivity',
-      sections: ['calm', 'reading', 'seeing']
-    },
-    {
-      id: 'senior', icon: 'person',
-      label: 'Ageing, or easier all round',
-      sections: ['seeing', 'moving', 'reading']
-    },
-    {
-      id: 'bangla', icon: 'globe',
-      label: 'Reading in Bangla',
-      sections: ['bangla', 'seeing', 'reading']
-    }
-  ],
-
-  /**
    * Search terms for the panels written directly in popup.html. Their own
    * heading, description and button text are searched as well; these add the
    * words people type when they do not know what we called it ("ai",
    * "alt text", "summary"). Keys are the panel's section id.
    */
   panels: {
-    'section-profiles': 'profile profiles preset presets quick setup bundle start turn off disable everything',
     'section-ai': 'ai artificial intelligence smart help alt text image images picture pictures photo photos describe description caption summary summarise summarize explain overview what is this page about link links vague confusing click here rename button buttons unlabelled unnamed icon heal repair automatic plain language simple simplify simpler rewrite easy read jargon tldr key points bullets form forms fields documents need ready prepare',
     'section-audit': 'audit check checker test score wcag report scan problems issues errors how accessible',
-    'section-data': 'save load export import backup file json settings reset start again clear forget'
+    'section-data': 'save load export import backup file json settings reset start again clear forget setup set up change my setup needs profile profiles preset quick'
   },
 
   /** Collapsible sections, rendered in this order. */
@@ -183,7 +116,6 @@ const SCHEMA = {
         { id: 'altTextTooltips', type: 'switch', label: 'Show image descriptions', desc: 'Display each picture’s description underneath it.', wcag: '1.1.1', keywords: 'alt text captions pictures' },
         { id: 'dictionary', type: 'switch', label: 'Explain hard words', desc: 'Look up a word when you double-click it.', wcag: '3.1.3', keywords: 'definition meaning vocabulary' },
         { id: 'pauseMedia', type: 'switch', label: 'Pause moving content', desc: 'Stop sliders and carousels from moving on their own.', wcag: '2.2.2', keywords: 'carousel slider autoplay stop' },
-        { id: 'formBriefs', type: 'switch', label: 'Tell me what a form needs first', desc: 'When you start a long form, say what it will ask for, such as documents or ID numbers. Only the form\u2019s own labels are sent to Smart help, never what you type. Alt+Shift+G asks at any time.', wcag: '3.3.2', keywords: 'form forms prepare documents need ready before start summary fields what will it ask id number routing ai', defaultOn: true },
         { id: 'formSteps', type: 'switch', label: 'One question at a time', desc: 'Break long forms into single steps.', wcag: '3.3.2', keywords: 'forms wizard steps long' },
         { id: 'activeFieldHighlight', type: 'switch', label: 'Highlight the current box', desc: 'Make the form field you are typing in stand out.', wcag: '2.4.11', keywords: 'form input focus where am i' },
         { id: 'memoryAid', type: 'switch', label: 'Remember what I filled in', desc: 'Keep a note of what you typed in case the page reloads.', wcag: '3.3.7', keywords: 'redundant entry autofill remember' },
@@ -250,6 +182,12 @@ const SCHEMA = {
         { id: 'ttsReadOnHover', type: 'switch', label: 'Read what I point at', desc: 'Say what each button, link or piece of text is as you point at it.', wcag: '1.4.5', keywords: 'hover mouse point read aloud speak screen reader nvda buttons labels' },
         { id: 'hoverReadDelay', type: 'slider', label: 'Wait before speaking', desc: 'How long to rest on something before it is read out.', min: 150, max: 1500, step: 50, default: 400, suffix: 'ms', wcag: '2.2.1', keywords: 'hover delay dwell wait pause', dependsOn: 'ttsReadOnHover' },
         { id: 'ttsReadOnFocus', type: 'switch', label: 'Read what I tab to', desc: 'Say each control as the keyboard reaches it.', wcag: '1.4.5', keywords: 'focus keyboard tab read aloud speak screen reader nvda' },
+        { id: 'keyEcho', type: 'select', label: 'Read keys as I type', desc: 'Say each letter or word as you type it into a box. Password boxes say star, never the letter. Leave off if your own screen reader already does this.', default: 'off', wcag: '4.1.2', keywords: 'key echo typing typed keys letters characters words speak type aloud keyboard blind hear what i type', options: [
+          { value: 'off', label: 'Off' },
+          { value: 'letters', label: 'Each letter' },
+          { value: 'words', label: 'Each word' },
+          { value: 'both', label: 'Letters and words' }
+        ] },
         { id: 'naturalBanglaVoice', type: 'switch', label: 'Natural Bangla voice', desc: 'A clearer, human-sounding Bangla voice instead of the robotic one. Needs a one-time 73 MB download.', wcag: '1.4.5', keywords: 'bangla bengali natural neural human clear quality robotic download voice' },
         { id: 'speakImageDescriptions', type: 'switch', label: 'Describe pictures out loud', desc: 'Tab to a picture and press Enter, or press Alt+Shift+D, to hear what it shows.', wcag: '1.1.1', keywords: 'blind image picture photo describe alt text speak aloud ai what is this read image' },
         { id: 'ttsVoice', type: 'select', label: 'Voice', desc: 'Which voice reads text aloud. Automatic picks one that matches the language on the page.', default: '', wcag: '1.4.5', keywords: 'voice speaker accent bangla bengali language which voice', voices: true, options: [

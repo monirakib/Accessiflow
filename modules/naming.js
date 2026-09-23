@@ -197,9 +197,9 @@
     if (!el || !el.closest) return null;
 
     // Never announce our own furniture back at the user. Matched on the
-    // injected marker alone: AccessiFlow also renames the page's own elements
-    // (the skip link needs a target, so <main> becomes #accessiflow-main), and
-    // matching an id prefix silenced the entire page.
+    // injected marker alone: AccessiFlow once gave the page's <main> an id
+    // starting "accessiflow-" as a skip link target, and matching an id
+    // prefix silenced the entire page. (That id is now #main-accessiflow.)
     if (el.closest('[data-accessiflow-injected], #accessiflow-shortcut-announce')) return null;
 
     const interactive = el.closest(

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AccessiFlow: WCAG 2.2 Accessibility Suite",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Make any website easier to see, read, hear and use. Built for people with disabilities, following WCAG 2.2 AA and AAA.",
   "permissions": [
     "activeTab",
@@ -47,6 +47,9 @@
         "modules/ai-config.js",
         "modules/ai-cache.js",
         "modules/profiles.js",
+        "popup-schema.js",
+        "modules/settings-store.js",
+        "modules/shortcuts.js",
         "modules/naming.js",
         "modules/blind.js",
         "modules/vision.js",
@@ -56,6 +59,7 @@
         "modules/keyboard-nav.js",
         "modules/sr-buffer.js",
         "modules/sr-speech.js",
+        "modules/key-echo.js",
         "modules/sr-live.js",
         "modules/sr-table.js",
         "modules/sr-dialogs.js",

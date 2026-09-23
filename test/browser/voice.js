@@ -78,6 +78,14 @@ const SECOND = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><titl
     const id = new URL(swTarget.url()).host;
     const sw = await swTarget.worker();
 
+    // A fresh install opens the setup page by itself, at a moment of its own
+    // choosing. Left open, it can become the "most recent" tab that voice
+    // commands are sent to, and every command gets Chrome's refusal. It is
+    // closed first, as a user would once they had finished with it.
+    const setupTab = await browser.waitForTarget(t => t.type() === 'page' &&
+      t.url().startsWith('chrome-extension://' + id + '/welcome.html'), { timeout: 5000 }).catch(() => null);
+    if (setupTab) await (await setupTab.page()).close();
+
     const options = await sw.evaluate(() => chrome.sidePanel.getOptions({}));
     check(options && options.path === 'voice-panel.html' && options.enabled !== false,
       'the voice panel is registered as the side panel: ' + JSON.stringify(options));

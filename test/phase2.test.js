@@ -55,6 +55,16 @@ const PAGE = `<!DOCTYPE html><html lang="en"><head><title>Claims portal</title><
     </form>
 
     <form id="search"><input name="q" aria-label="Search"></form>
+
+    <form id="contact">
+      <label for="cname">Your name</label><input id="cname" required>
+      <label for="cmsg">Message</label><textarea id="cmsg"></textarea>
+    </form>
+
+    <form id="feedback">
+      <label for="fname">Name</label><input id="fname">
+      <label for="fnote">Comments</label><input id="fnote">
+    </form>
   </main>
 </body></html>`;
 
@@ -237,21 +247,44 @@ const forms = new window.FormsModule();
   check(/Section: About you/.test(t), 'fieldset legends give the form its structure');
   check(/Form: Medical history form/.test(t), 'and the form is named');
 
-  // The search box is not a form worth a summary.
-  check(forms.serialize(el('search')).fields < 4, 'a one-field search form is below the threshold');
+  // ── Form summaries made here, with no AI ────────────────────────────────
+  const local = forms.localSummary(serialized);
+  const leakedLocally = SECRETS.filter(secret => local.indexOf(secret) !== -1);
+  check(leakedLocally.length === 0,
+    'the summary made on this computer holds nothing typed either' +
+    (leakedLocally.length ? ', LEAKED: ' + leakedLocally.join(', ') : ''));
+  check(/^The form "Medical history form" has \d+ questions\./.test(local),
+    'it names the form and counts its questions: ' + local.slice(0, 60));
+  check(/NHS number, Date of birth, Email \(optional\)/.test(local),
+    'it lists what the form asks for, marking what is optional: ' + local);
+  check(/a file to upload \(Scan of your prescription\)/.test(local),
+    'and the documents to have ready');
+  check(/a password/.test(local) && /payment card details/.test(local) && local.indexOf('Card number') === -1,
+    'card and password fields only by what they are');
 
-  // Automatic brief on first focus.
-  forms.apply({ formBriefs: true });
+  // A one-box search bar is not a form worth a summary; two questions are.
+  check(forms.serialize(el('search')).fields < 2 && !forms._eligible(el('search')),
+    'a one-field search form gets no summary');
+  check(forms._eligible(el('contact')), 'a two-question form does');
+
+  // ── Always on, whatever the settings say ────────────────────────────────
+  const said = [];
+  forms.setSpeaker(text => said.push(text));
+  forms.apply({ formBriefs: false });   // the old switch, set off: it no longer exists
   el('nhs').focus();       // a real focus, which fires focusin as a browser would
   await new Promise(r => setTimeout(r, 20));
   const brief = el('claim').previousElementSibling;
   check(brief && brief.classList.contains('accessiflow-form-brief'),
-    'focusing the first field shows a brief above the form');
+    'focusing the first field shows a summary above the form, with no switch turned on');
   check(brief && brief.getAttribute('role') === 'status',
     'as a status region, so a screen reader announces it without moving focus');
   check(doc.activeElement === el('nhs'), 'focus stays in the field the user chose');
   const briefMsg = sent.filter(m => m.action === 'aiFormBrief').pop();
-  check(briefMsg && briefMsg.auto === true, 'a brief triggered by focus is marked automatic');
+  check(briefMsg && briefMsg.auto === true, 'a summary triggered by focus asks Smart help as an automatic request');
+  check(brief && brief.dataset.source === 'ai' && /NHS number and a scan/.test(brief.textContent),
+    'which, when the user has agreed to automatic help, writes it');
+  check(said.length === 1 && /^Before you start this form\. You will need/.test(said[0]),
+    'and it is handed to the speaker once: ' + said.join(' | '));
 
   const count = sent.filter(m => m.action === 'aiFormBrief').length;
   el('dob').focus();
@@ -262,10 +295,57 @@ const forms = new window.FormsModule();
   doc.querySelector('#search input').focus();
   await new Promise(r => setTimeout(r, 20));
   check(sent.filter(m => m.action === 'aiFormBrief').length === count,
-    'focusing a search box never triggers a brief');
+    'focusing a search box never triggers a summary');
+
+  // Without the user's agreement Smart help refuses at once, and the summary
+  // made here takes its place, with nothing sent anywhere.
+  replies.aiFormBrief = () => ({ success: false, code: 'no_consent', error: 'Automatic fixes are off.' });
+  said.length = 0;
+  el('cname').focus();
+  await new Promise(r => setTimeout(r, 20));
+  const contactBrief = el('contact').previousElementSibling;
+  check(contactBrief && contactBrief.dataset.source === 'local' &&
+    /It has 2 questions\. It asks for: Your name and Message \(optional\)\./.test(contactBrief.textContent),
+    'without agreement, the summary is made on this computer: ' + (contactBrief && contactBrief.querySelector('.accessiflow-form-brief-text').textContent));
+  check(/made on this computer/.test(contactBrief.querySelector('.accessiflow-form-brief-note').textContent),
+    'and says so: nothing was sent anywhere');
+  check(said.length === 1 && /Your name/.test(said[0]), 'it goes to the speaker the same way');
+
+  // Smart help slow to answer: the local summary goes up first, and the AI's
+  // replaces its words quietly, without saying them a second time.
+  window.ACCESSIFLOW_AI_CONFIG.FORM_AI_WAIT_MS = 30;
+  replies.aiFormBrief = () => ({ success: true, text: 'You will need your name and a few comments.', slow: true });
+  const realSend = window.chrome.runtime.sendMessage;
+  window.chrome.runtime.sendMessage = (msg, cb) => {
+    sent.push(msg);
+    const reply = replies[msg.action] ? replies[msg.action](msg) : { success: true };
+    if (cb) setTimeout(() => cb(reply), reply.slow ? 120 : 0);
+  };
+  said.length = 0;
+  el('fname').focus();
+  await new Promise(r => setTimeout(r, 60));
+  const feedbackBrief = el('feedback').previousElementSibling;
+  check(feedbackBrief && feedbackBrief.dataset.source === 'local',
+    'if Smart help is slow, the summary made here goes up first');
+  await new Promise(r => setTimeout(r, 150));
+  check(feedbackBrief.dataset.source === 'ai' && /a few comments/.test(feedbackBrief.textContent),
+    'and the AI\'s replaces it when it arrives');
+  check(said.length === 1 && /It asks for: Name and Comments\./.test(said[0]),
+    'without being said a second time: ' + said.join(' | '));
+  check(feedbackBrief.getAttribute('aria-live') === 'polite',
+    'and the region is live again afterwards, having been quiet for the swap');
+  window.chrome.runtime.sendMessage = realSend;
+
+  // Alt+Shift+G and the popup say the result themselves.
+  said.length = 0;
+  replies.aiFormBrief = () => ({ success: false, error: 'You appear to be offline.' });
+  el('cmsg').focus();
+  const asked = await forms.describeCurrent();
+  check(/It has 2 questions/.test(asked) && said.length === 0,
+    'asked for explicitly while offline, the summary made here is returned, for the caller to say');
 
   forms.destroy();
-  check(!doc.querySelector('.accessiflow-form-brief'), 'destroy removes the brief');
+  check(!doc.querySelector('.accessiflow-form-brief'), 'destroy removes every summary');
 
   finish();
 })().catch(err => { errors.push('threw: ' + err.stack); finish(); });

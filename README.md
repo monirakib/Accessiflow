@@ -21,6 +21,54 @@ instead of `aria-checked`, `<label for>` pointing at `<button>` elements where
 Fonts that Manifest V3 blocks anyway. That is an accessibility tool failing its
 own audit.
 
+## What changed in 3.0
+
+Settings used to be kept per website, so every choice had to be made again on
+the next site, and a blind user had to find a switch on each new page before
+the thing that would read the switch out was running. Now there is one
+**setup**, applied on every website, with per-site exceptions on top.
+
+- **A setup page that talks.** Installing AccessiFlow opens `welcome.html`,
+  which starts speaking at once through `chrome.tts` (a page's own speech is
+  refused until the user presses something, and a blind user cannot find a
+  Start button they cannot see). Three questions: what you need (number keys
+  choose), a few details for those needs, and a check before saving. "Blind,
+  and I use NVDA" and "blind, with nothing" get different setups, so nothing
+  is ever read twice.
+- **Key echo.** Each letter, each word, or both, as it is typed into any text
+  box. Password boxes say "star". Built on `beforeinput`/`input`, so Bangla
+  and other input methods are spoken once the character is complete.
+- **Summarise, out loud.** A button on the popup's Home screen and
+  <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>. The AI's three key points,
+  spoken and shown; an outline built from the page itself when the helper
+  cannot be reached.
+- **One Stop, and a Pause.** The popup's Stop, <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>,
+  <kbd>Ctrl</kbd> on its own as in NVDA, and a button on the page that appears
+  only while something long is being read. <kbd>Shift</kbd> on its own pauses,
+  and pressed again carries on from the word it stopped on (from the start of
+  that sentence or two, with a voice that does not report its words). The
+  caller keeps waiting through a pause, so the screen reader's read-all goes
+  on to the next line afterwards. Shift with any other key, or with a click,
+  is never taken for a pause. Every module now speaks through
+  the same engine, so all of it is in the user's voice and speed, and Stop
+  reaches all of it.
+- **A summary on every form.** When focus first enters a form of two
+  questions or more, a short summary appears above it: how many questions,
+  what they ask for, which are optional, and any file to have ready. It is
+  written on the user's own computer from the form's labels, with nothing
+  sent; once the user has agreed to automatic Smart help, the AI's fuller
+  summary is used instead. With the built-in screen reader on it is read out,
+  queued after the name of the field focus landed on; with it off it is only
+  shown. There is no switch for it any more: it is part of AccessiFlow being
+  on for the site.
+- **A popup that is not overwhelming.** Home shows whether AccessiFlow is on
+  for this site, the setup, four large buttons (read, stop, summarise,
+  describe the pictures) and at most six settings chosen for the user's
+  needs. Everything else is under All settings, with search, as before.
+- **The popup and setup page speak for themselves** while the built-in screen
+  reader is on (`ui-voice.js`), since that reader cannot run inside extension
+  pages.
+
 ## Layout
 
 ```
@@ -32,8 +80,13 @@ popup.html             Popup shell: header, search, static panels, dialog
 popup-schema.js        Every setting defined once: label, help text, WCAG ref
 popup.js               Renders the schema, handles search, AI, audit, storage
 popup.css              Three themes, forced-colors, reduced motion
-welcome.html/.css      First-run page
+welcome.html/.js/.css  The setup page: talks, asks three questions, saves the setup
+ui-voice.js            Speech for AccessiFlow's own pages (popup, setup page)
 modules/               Per-disability feature modules (vision, motor, ...)
+  settings-store.js    Defaults, then the setup, then this site's exceptions
+  profiles.js          One bundle per need, with its setup wording and Home settings
+  shortcuts.js         Every keyboard shortcut, written once
+  key-echo.js          Says what is typed
   ai-config.js         Shared AI constants for worker and content scripts
   ai.js                Finds work, prepares it, applies results. No network.
 server/                Cloudflare Worker proxy. The HF token lives here.
@@ -215,21 +268,28 @@ screen. The voice picker in *Having pages read aloud* lists every installed
 voice with its language tag, which is how a user can tell whether their browser
 has one for their language at all.
 
-### A profile is one keypress
+### The setup, and a profile in one keypress
 
-Seven bundles, one per disability, are listed in
-[modules/profiles.js](modules/profiles.js) and applied by
-<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>1</kbd> to <kbd>7</kbd> on any page,
-with <kbd>8</kbd> for everything off and <kbd>9</kbd> to hear the list. Each
-keypress says which profile it turned on, twice over: into a live region for
-a screen reader already running, and in the extension's own voice for someone
-who has none.
+What applies on a site is worked out in one place,
+[modules/settings-store.js](modules/settings-store.js), shared by the page,
+the popup and the setup page: the schema defaults, then the user's setup
+(`accessiflow_setup`), then that site's own exceptions (`settings_<host>`,
+only what differs). A change in the popup goes into the setup unless "Only
+this site" is chosen, and every open tab follows it through
+`storage.onChanged`, a background tab only once it is looked at. Sites saved
+by 2.x held a full copy of every setting; on first read the copy is trimmed
+to what differs from the defaults, so a site keeps its own adjustments and
+starts following the setup for everything else.
 
-The reason this exists at all: a blind user cannot open a panel, read seventy
-switches and pick the eight that help them. The panel is a way to fine-tune a
-profile afterwards, not the way in. That is also why the profile list moved
-out of `popup-schema.js` — the content script needs the same bundles the
-popup renders, and two copies would drift.
+Nine bundles, one per need, are listed in
+[modules/profiles.js](modules/profiles.js). The setup page asks about them
+with the same numbers as <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>1</kbd> to
+<kbd>7</kbd>, which add a need to the setup from any page. Adding, never
+replacing: one keypress must not undo a setup someone spent time on.
+<kbd>8</kbd> pauses AccessiFlow on the current site only (again to undo) and
+<kbd>9</kbd> reads the main keys aloud. Each keypress says what it did, twice
+over: into a live region for a screen reader already running, and in the
+extension's own voice for someone who has none.
 
 `e.code` rather than `e.key` decides the digit: with Shift held, "1" arrives
 as "!" and differs between keyboard layouts. Digits with no profile are left
@@ -300,7 +360,7 @@ buttons disable themselves and say so. Everything else works offline.
 The popup renders from `popup-schema.js`. One entry per setting, holding its
 plain-language label, a one-sentence description, search keywords and the WCAG
 criterion it serves. `popup.js` turns that into markup with DOM calls, which
-means all 79 controls get identical ARIA wiring and a setting cannot drift out
+means every control gets identical ARIA wiring and a setting cannot drift out
 of sync with its own label.
 
 Decisions worth defending:
@@ -311,15 +371,14 @@ reads top to bottom under a screen reader, and adding a search box over it means
 a user can type "tremor" and land on the right control without knowing we filed
 it under Moving and clicking.
 
-**A disability filter over the nine setting groups.** Showing all nine at once
-asks someone to read past six groups that are not theirs before reaching the
-one that is. The `audiences` list in `popup-schema.js` names, for each
-disability type, the sections that help with it, most useful first; choosing
-one moves those to the top, puts the rest away and opens the first. It filters
-the view only. Nothing is switched off, hidden groups keep working, and when a
-hidden group still has a setting turned on the hint says so, because a setting
-that is on but off screen is the one way a filter can trap someone. Search runs
-inside the choice and reports what it left outside it.
+**Home first, everything else one press away.** Most people open the panel
+to have a page read, to stop it, or to find out what a page is about. Home
+holds those, whether AccessiFlow is on for this site, the setup, and at most
+six settings picked from the chosen needs (one from each need in turn, from
+`home` in `profiles.js`). The rows on Home are copies of the rows under All
+settings, with their own ids, and both follow every change. The needs filter
+and the Quick setup grid of 2.x are gone: the setup page does their job once,
+instead of on every visit.
 
 **Real checkboxes with `role="switch"`, not buttons.** Native keyboard
 behaviour, native label association, a state screen readers already announce.
@@ -344,8 +403,9 @@ the clinical term kept in the search keywords so both audiences find it.
 ## Tests
 
 ```bash
-cd server && npm install && npm test   # 19 checks on the proxy
-cd test   && npm install && npm test   # 45 popup, 59 module, 35 content-script checks
+cd server && npm install && npm test          # the proxy
+cd test   && npm install && npm test          # 21 jsdom suites
+cd test   && npm run test:browser             # real Chrome, extension installed
 ```
 
 The Worker suite covers token forgery, payload tampering, expiry, origin
@@ -353,13 +413,16 @@ rejection, all three quota ladders, SSRF through the image field, prompt and
 model override attempts, and that the Hugging Face token never appears in a
 response. The popup suite renders the real `popup.html` under jsdom and asserts
 every control has a `<label for>` and a resolvable `aria-describedby`, that no
-id is duplicated, that `aria-expanded` matches `hidden` on every section, and
-that profiles, dependent controls, steppers and search behave. It also
-checks that every disability type names sections that exist and that every
-section is reachable from at least one type, since a typo there would
-silently strand a group of settings. The module suite runs Screen reader
-repairs and the AI together, because each was right alone and wrong in
-company: the repair placeholder made every picture look already described.
+id is duplicated even with the Home copies, that `aria-expanded` matches
+`hidden` on every section, that a change lands in the setup or in the site's
+exceptions as chosen, and that the Help list names every Alt+Shift key
+`content.js` handles and every manifest command. `settings-store.test.js`
+covers the layering and the 2.x migration, `key-echo.test.js` what is heard
+while typing, and `welcome.test.js` the setup page's keys, voice and answers.
+In real Chrome, `setup.js` installs AccessiFlow into a fresh profile, finishes
+the setup with the keyboard alone, and checks that a site opened afterwards
+follows it, that the Stop button shows and Ctrl stops speech, and that the
+popup lays out in the real cascade.
 
 Neither suite replaces testing with an actual screen reader. NVDA on Windows and
 VoiceOver on macOS are still the check that matters before submission, and the
@@ -377,6 +440,15 @@ automated tests only stop the obvious regressions.
 
 ## Known gaps
 
+- Until 3.0 the skip-link repair gave the page's `<main>` the id
+  `accessiflow-main`. Every module treats an id starting `accessiflow-` as
+  AccessiFlow's own furniture, so on sites without their own skip link the
+  whole main content was skipped by smart dark mode, the page check, click
+  snapping, voice commands and form summaries. The target is now
+  `#main-accessiflow`; a check in `content.test.js` keeps it that way.
+- Key echo and the floating Stop button work in the page itself, not inside
+  an embedded frame from another site (a card payment box, some login
+  forms), because the content script runs only in the top frame.
 - `blindMode` defaults on and runs repairs on every page. That is deliberate,
   but it has not been measured against a heavy single-page app yet.
 - The AI summary panel is injected at the top of `document.body`. On sites with

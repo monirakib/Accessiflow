@@ -132,10 +132,9 @@ class NeuroModule {
             progressBar.style.width = '0%';
 
             // Announce break
-            try {
-              const utter = new SpeechSynthesisUtterance('Time for a break! Well done.');
-              window.speechSynthesis.speak(utter);
-            } catch (e) { /* skip */ }
+            if (typeof window.AccessiFlowSpeak === 'function') {
+              window.AccessiFlowSpeak('Time for a break! Well done.');
+            }
 
             // Flash border
             let flash = 0;

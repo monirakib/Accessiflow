@@ -975,7 +975,11 @@ class BlindModule {
 
       // Find the main content element
       const mainEl = document.querySelector('main, [role="main"]');
-      const targetId = 'accessiflow-main';
+      // Not "accessiflow-main": an id starting "accessiflow-" is how every
+      // module recognises AccessiFlow's own furniture, so that id made the
+      // page's entire main content look like ours. Dark mode, the page check,
+      // click snapping, voice commands and form summaries all skipped it.
+      const targetId = 'main-accessiflow';
 
       if (mainEl && !mainEl.id) {
         this._trackRepair(mainEl, 'id', mainEl.getAttribute('id'));

@@ -7,6 +7,13 @@
 // fatigue-related disabilities that abandonment is where most online forms are
 // lost.
 //
+// Every form of two questions or more gets one, the moment focus first enters
+// it. The summary is written on this computer from the form's own labels, so
+// nothing is sent anywhere. When the user has agreed to automatic Smart help,
+// or asks with Alt+Shift+G, the AI's fuller summary is used instead. With the
+// built-in screen reader on, the summary is read out after the field's name;
+// with it off, it is only shown.
+//
 // The privacy rule is enforced by construction, not by care: the serialiser
 // below never reads `.value`, never reads a `value` attribute, and never looks
 // inside a password, hidden or payment field. There is no code path by which
@@ -145,6 +152,7 @@ class FormsModule {
    */
   serialize(form) {
     const lines = [];
+    const items = [];      // the same, as data, for the summary made here
     const clean = t => String(t || '').replace(/\s+/g, ' ').trim();
 
     const heading = form.querySelector('legend, h1, h2, h3, [role="heading"]') ||
@@ -179,6 +187,7 @@ class FormsModule {
         if (!sensitive[category]) {
           sensitive[category] = true;
           lines.push('- ' + category + ' details' + (el.required ? ' (required)' : ''));
+          items.push({ sensitive: category, required: !!el.required });
           fields++;
         }
         continue;
@@ -211,10 +220,59 @@ class FormsModule {
       if (digits) facts.push((digits[1] || digits[2]) + ' digits');
 
       lines.push('- ' + label + ' (' + facts.join(', ') + ')');
+      items.push({
+        label: label === '(unlabelled)' ? '' : label.replace(/\s*\(hint:.*\)$/, ''),
+        type: facts[0],
+        required: facts.indexOf('required') !== -1
+      });
       fields++;
     }
 
-    return { text: lines.join('\n').slice(0, 1500), fields: fields };
+    return { text: lines.join('\n').slice(0, 1500), fields: fields, items: items, title: title, steps: steps };
+  }
+
+  /**
+   * A summary written here, from the serialised form, with no AI and nothing
+   * sent. "This form has 6 questions. It asks for: NHS number, Date of birth,
+   * Email (optional), a file to upload (Scan of your prescription), and
+   * payment card details. This is step 2 of 4."
+   */
+  localSummary(serialized) {
+    const s = serialized;
+    const items = s.items || [];
+    const anyRequired = items.some(i => i.required);
+    const said = [];
+    let unlabelled = 0;
+    items.forEach(item => {
+      const optional = anyRequired && !item.required ? ' (optional)' : '';
+      if (item.sensitive) {
+        said.push((item.sensitive === 'payment card' ? 'payment card details'
+          : item.sensitive === 'password' ? 'a password' : 'a one-time code') + optional);
+        return;
+      }
+      if (!item.label) { unlabelled++; return; }
+      if (/^file upload/.test(item.type)) said.push('a file to upload (' + item.label + ')' + optional);
+      else said.push(item.label + optional);
+    });
+
+    const shown = said.slice(0, 8);
+    const more = said.length - shown.length + unlabelled;
+    let list = shown.join(', ');
+    if (more > 0) list += (list ? ', and ' : '') + more + (more === 1 ? ' more box' : ' more boxes');
+    else if (shown.length === 2) list = shown[0] + ' and ' + shown[1];
+    else if (shown.length > 2) list = shown.slice(0, -1).join(', ') + ', and ' + shown[shown.length - 1];
+
+    // "It has", not "This form has": it sits under "Before you start this
+    // form", and is read out straight after those words.
+    const count = s.fields + (s.fields === 1 ? ' question' : ' questions');
+    const parts = [(s.title ? 'The form "' + s.title + '" has ' : 'It has ') + count + '.'];
+    if (list) parts.push('It asks for: ' + list + '.');
+    if (anyRequired) {
+      const required = items.filter(i => i.required).length;
+      if (required === items.length) parts.push('All of them are required.');
+    }
+    if (s.steps) parts.push('This is ' + s.steps + '.');
+    return parts.join(' ');
   }
 
   /** "Step 2 of 4", from whatever the form uses to say so. */
@@ -236,21 +294,13 @@ class FormsModule {
   _eligible(form) {
     if (!form || this._briefed.has(form)) return false;
     if (form.closest('[id^="accessiflow-"]')) return false;
-    // A search box or a newsletter signup is not what this is for.
-    return this.serialize(form).fields >= (this.cfg.FORM_MIN_FIELDS || 4);
+    // A one-box search bar or newsletter signup is not what this is for.
+    return this.serialize(form).fields >= (this.cfg.FORM_MIN_FIELDS || 2);
   }
 
-  /**
-   * @param {Element} form
-   * @param {boolean} auto true when triggered by focus rather than a keypress
-   */
-  async describe(form, auto) {
-    if (!form) throw new Error('There is no form here to describe.');
-    const serialized = this.serialize(form);
-    if (serialized.fields < 2) throw new Error('This form is too short to need a summary.');
-    this._briefed.add(form);
-
-    const reply = await new Promise((resolve, reject) => {
+  /** Smart help's summary of the serialised form. Rejects with a code on refusal. */
+  _askAI(serialized, auto) {
+    return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({
         action: 'aiFormBrief',
         fields: serialized.text,
@@ -264,20 +314,75 @@ class FormsModule {
           reject(err);
           return;
         }
-        resolve(response);
+        resolve((response.text || '').trim());
       });
     });
-
-    const text = (reply.text || '').trim();
-    if (!text) return null;
-    this._showBrief(form, text);
-    return text;
   }
 
-  _showBrief(form, text) {
+  /**
+   * Shows the form's summary above it, and resolves with its text.
+   *
+   * Smart help is asked first, because a remembered answer or an agreed
+   * automatic one is better than anything made here. Without the user's
+   * agreement it refuses at once, so the summary made here appears with no
+   * wait. If the helper is slow, the local summary goes up after a moment,
+   * and the helper's replaces its text quietly when it arrives, without
+   * saying it a second time.
+   *
+   * @param {Element} form
+   * @param {boolean} auto true when triggered by focus rather than a keypress
+   * @param {boolean} [speak=true] false when the caller says it itself
+   */
+  describe(form, auto, speak) {
+    const say = speak !== false;
+    if (!form) return Promise.reject(new Error('There is no form here to describe.'));
+    const serialized = this.serialize(form);
+    if (serialized.fields < 2) return Promise.reject(new Error('This form is too short to need a summary.'));
+    this._briefed.add(form);
+
+    const local = this.localSummary(serialized);
+    let shown = null;
+    const show = (text, source) => { shown = source; this._showBrief(form, text, source, say); };
+    const timer = setTimeout(() => { if (!shown) show(local, 'local'); }, this.cfg.FORM_AI_WAIT_MS || 2500);
+
+    return this._askAI(serialized, auto).then(text => {
+      clearTimeout(timer);
+      if (!text) {
+        if (!shown) show(local, 'local');
+        return local;
+      }
+      if (shown) this._showBrief(form, text, 'ai', false);   // quietly: the local one was already said
+      else show(text, 'ai');
+      return text;
+    }, err => {
+      clearTimeout(timer);
+      // No agreement, no allowance left, offline, or refused: the summary made
+      // here stands. The user did not ask for Smart help, so its refusal is
+      // not theirs to hear about.
+      if (err.code !== 'no_consent' && err.code !== 'budget') this._warn(err.message);
+      if (!shown) show(local, 'local');
+      return local;
+    });
+  }
+
+  /**
+   * @param {string} source 'ai' or 'local', for the note under the summary
+   * @param {boolean} speak whether to hand it to the speaker
+   */
+  _showBrief(form, text, source, speak) {
+    const noteText = source === 'ai'
+      ? 'Summary by AI from the form’s labels. Nothing you type is sent.'
+      : 'Summary made on this computer from the form’s labels. Nothing is sent anywhere.';
     const existing = form.previousElementSibling;
     if (existing && existing.classList && existing.classList.contains('accessiflow-form-brief')) {
+      // A quiet swap stays quiet for screen readers too: a status region
+      // whose text changes is read out, and this one was read a moment ago.
+      if (!speak) existing.setAttribute('aria-live', 'off');
       existing.querySelector('.accessiflow-form-brief-text').textContent = text;
+      existing.querySelector('.accessiflow-form-brief-note').textContent = noteText;
+      existing.dataset.source = source;
+      if (!speak) setTimeout(() => existing.setAttribute('aria-live', 'polite'), 50);
+      if (speak) this._say(text);
       return;
     }
 
@@ -299,7 +404,8 @@ class FormsModule {
 
     const note = document.createElement('small');
     note.className = 'accessiflow-form-brief-note';
-    note.textContent = 'Summary by AI from the form’s labels. Nothing you type is sent.';
+    note.textContent = noteText;
+    panel.dataset.source = source;
 
     const close = document.createElement('button');
     close.type = 'button';
@@ -310,12 +416,15 @@ class FormsModule {
     panel.append(heading, body, note, close);
     form.parentNode.insertBefore(panel, form);
     this._panels.push(panel);
+    if (speak) this._say(text);
+  }
 
-    // content.js decides whether to speak: a screen reader already announces
-    // this panel through its role=status, and a second voice would talk over it.
-    if (this._speak) {
-      try { this._speak('Before you start this form. ' + text); } catch (e) { /* skip */ }
-    }
+  // content.js decides whether to speak: only with the built-in screen
+  // reader on. Anyone else sees the panel, and another screen reader
+  // announces it through its role=status.
+  _say(text) {
+    if (!this._speak) return;
+    try { this._speak('Before you start this form. ' + text); } catch (e) { /* skip */ }
   }
 
   /** Alt+Shift+G: the form the keyboard is in, or else the first on the page. */
@@ -324,30 +433,29 @@ class FormsModule {
     let form = active && active.closest ? active.closest('form, [role="form"]') : null;
     if (!form) form = document.querySelector('form, [role="form"]');
     if (form) this._briefed.delete(form);   // an explicit request always runs
-    return this.describe(form, false);
+    // Asked for, so Smart help may answer without the automatic agreement.
+    // Whoever asked says the result: Alt+Shift+G out loud, the popup in its
+    // own status line.
+    return this.describe(form, false, false);
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
+  /**
+   * Always on, whatever the settings say: a form's summary is part of
+   * AccessiFlow being on for the site, not a switch to find first. Only
+   * pausing AccessiFlow for the site (destroy) takes it away.
+   */
   apply(settings) {
     this._settings = settings || {};
-    const want = !!this._settings.formBriefs;
-
-    if (want && !this._active) {
-      this._active = true;
-      this._focusHandler = (e) => {
-        const form = e.target && e.target.closest && e.target.closest('form, [role="form"]');
-        if (!form || !this._eligible(form)) return;
-        this.describe(form, true).catch(err => {
-          // No consent, no allowance left, or offline: say nothing. The user
-          // did not ask for this, so a failure is not theirs to hear about.
-          if (err.code !== 'no_consent' && err.code !== 'budget') this._warn(err.message);
-        });
-      };
-      document.addEventListener('focusin', this._focusHandler, true);
-    } else if (!want && this._active) {
-      this.destroy();
-    }
+    if (this._active) return;
+    this._active = true;
+    this._focusHandler = (e) => {
+      const form = e.target && e.target.closest && e.target.closest('form, [role="form"]');
+      if (!form || !this._eligible(form)) return;
+      this.describe(form, true).catch(err => this._warn(err.message));
+    };
+    document.addEventListener('focusin', this._focusHandler, true);
   }
 
   destroy() {

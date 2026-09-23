@@ -16,6 +16,16 @@ class SpeechModule {
   _log(msg) { console.log('[AccessiFlow][Speech] ' + msg); }
   _warn(msg) { console.warn('[AccessiFlow][Speech] ' + msg); }
 
+  /**
+   * Speaks in the voice and at the speed the user chose, through content.js,
+   * so Stop reaches it too. The browser's default voice is only a fallback
+   * for when this module runs on its own.
+   */
+  static say(text) {
+    if (typeof window.AccessiFlowSpeak === 'function') { window.AccessiFlowSpeak(text); return; }
+    try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch (e) { /* no speech here */ }
+  }
+
   _getStyle() {
     if (!this._styleEl || !document.head.contains(this._styleEl)) {
       this._styleEl = document.getElementById('accessiflow-speech-style');
@@ -119,10 +129,7 @@ class SpeechModule {
               const current = output.textContent || '';
               output.textContent = current + (current ? ' ' : '') + item.label;
               // Also speak it
-              try {
-                const utter = new SpeechSynthesisUtterance(item.label);
-                window.speechSynthesis.speak(utter);
-              } catch (e) { /* no TTS */ }
+              SpeechModule.say(item.label);
             });
             row.appendChild(btn);
           });
@@ -141,12 +148,7 @@ class SpeechModule {
         speakBtn.style.cssText = 'flex:1;padding:8px;background:#4fffb0;color:#0e0f13;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:13px;';
         speakBtn.addEventListener('click', () => {
           const text = output.textContent.trim();
-          if (text) {
-            try {
-              const utter = new SpeechSynthesisUtterance(text);
-              window.speechSynthesis.speak(utter);
-            } catch (e) { /* no TTS */ }
-          }
+          if (text) SpeechModule.say(text);
         });
 
         const clearBtn = document.createElement('button');
@@ -228,10 +230,7 @@ class SpeechModule {
               }
             }
             // Also speak it
-            try {
-              const utter = new SpeechSynthesisUtterance(text);
-              window.speechSynthesis.speak(utter);
-            } catch (e) { /* skip */ }
+            SpeechModule.say(text);
           });
           panel.appendChild(btn);
         });
@@ -279,13 +278,7 @@ class SpeechModule {
         speakBtn.style.cssText = 'width:40px;height:40px;background:#4fffb0;color:#0e0f13;border:none;border-radius:8px;font-size:18px;cursor:pointer;';
         speakBtn.addEventListener('click', () => {
           const text = input.value.trim();
-          if (text) {
-            try {
-              window.speechSynthesis.cancel();
-              const utter = new SpeechSynthesisUtterance(text);
-              window.speechSynthesis.speak(utter);
-            } catch (e) { /* skip */ }
-          }
+          if (text) SpeechModule.say(text);
         });
 
         input.addEventListener('keydown', (e) => {

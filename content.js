@@ -54,6 +54,8 @@
   // them, which on Windows is every Bangla user who has not installed a
   // language pack.
   const OWN_VOICE_LANGS = { bn: true };
+  // Roughly two sentences: the most a paused read ever has to repeat.
+  const RUN_CHARS = 240;
   class TTSEngine {
     constructor() {
       this.synth = window.speechSynthesis;
@@ -68,7 +70,74 @@
       this._gaveUpWaiting = false;
       this._missingSaid = {};
       this.onMissingVoice = null;  // set by the page, to report it out loud
+      // Told when speech starts and stops, with whether it was brief (a key
+      // echoed, a control named) or something worth a Stop button.
+      this.onStateChange = null;
+      this._brief = false;
+      this._playing = null;        // { runs, index, pass }: what is being said now
+      this._charIndex = 0;         // the word the voice last said it was on
+      this._paused = null;         // what pause() stopped, for resume() to carry on
       this._watchVoices();
+    }
+
+    get isPaused() { return Boolean(this._paused); }
+
+    _setReading(reading) {
+      const changed = reading !== this.isReading;
+      this.isReading = reading;
+      if (changed) this._notify();
+    }
+
+    _notify() {
+      if (typeof this.onStateChange !== 'function') return;
+      try { this.onStateChange(this.isReading, this._brief); } catch (e) { /* ok */ }
+    }
+
+    /** Silences every voice at once, without deciding what happens next. */
+    _cancelAudio() {
+      try { this.synth.cancel(); } catch (e) { /* ok */ }
+      try {
+        chrome.runtime.sendMessage({ action: 'stopOffline' }, () => { void chrome.runtime.lastError; });
+      } catch (e) { /* the worker may be asleep; nothing is playing then */ }
+    }
+
+    /**
+     * Stops the voice mid-sentence and remembers where. The caller's promise
+     * stays open, so the screen reader's read-all simply carries on once
+     * resume() is called, as if nothing had happened. Nothing brief is
+     * paused: a typed key is over before anyone could reach Shift.
+     */
+    pause() {
+      if (!this.isReading || this._brief || !this._playing || this._paused) return false;
+      const p = this._playing;
+      this._paused = { runs: p.runs, index: p.index, offset: this._charIndex, pass: p.pass };
+      this._playing = null;
+      this._turn = (this._turn || 0) + 1;   // the pass in progress holds, see _playRuns
+      this._cancelAudio();
+      this._setReading(false);
+      return true;
+    }
+
+    /**
+     * Carries on from the word the voice stopped on, or from the start of
+     * that stretch of text for a voice that does not report its words.
+     */
+    resume() {
+      const p = this._paused;
+      if (!p) return false;
+      this._paused = null;
+      const runs = p.runs.slice(p.index).map(run => ({ lang: run.lang, text: run.text }));
+      if (runs.length && p.offset > 0) {
+        const rest = runs[0].text.slice(p.offset);
+        if (rest.trim()) runs[0].text = rest;
+        else runs.shift();
+      }
+      this._brief = false;
+      this._turn = (this._turn || 0) + 1;
+      p.pass.live = false;
+      this._setReading(true);
+      this._playRuns(runs, this._turn, p.pass.done);
+      return true;
     }
 
     /**
@@ -91,7 +160,7 @@
         const held = this._pending;
         if (held && this._voices.length) {
           this._pending = null;
-          this.speak(held.text, held.element).then(held.resolve);
+          this.speak(held.text, held.element, held.opts).then(held.resolve);
         }
       };
 
@@ -107,7 +176,7 @@
         this._gaveUpWaiting = true;
         const held = this._pending;
         this._pending = null;
-        if (held) this.speak(held.text, held.element).then(held.resolve);
+        if (held) this.speak(held.text, held.element, held.opts).then(held.resolve);
       }, 1500);
     }
 
@@ -194,8 +263,12 @@
         if (!part.trim()) return;
         const lang = this.languageOf(part);
         const last = runs[runs.length - 1];
-        if (last && (last.lang === lang || part.trim().length < 4)) last.text += ' ' + part;
-        else runs.push({ lang: lang, text: part });
+        // Runs are kept to a few sentences each, so that a pause can pick up
+        // again near where it stopped, even with a voice that never says
+        // which word it is on.
+        if (last && (part.trim().length < 4 || (last.lang === lang && last.text.length < RUN_CHARS))) {
+          last.text += ' ' + part;
+        } else runs.push({ lang: lang, text: part });
       });
       return runs.length ? runs : [{ lang: this.languageOf(text), text: String(text) }];
     }
@@ -203,8 +276,11 @@
     /**
      * Resolves true once all of it has been said, or false if something cut
      * in first. The screen reader waits on this to read the next line.
+     *
+     * opts.brief marks speech that is over in a moment by nature, such as a
+     * typed key, so it never brings up the Stop button.
      */
-    speak(text, element) {
+    speak(text, element, opts) {
       if (!text || !text.trim()) return Promise.resolve(false);
 
       // Still waiting for Chrome's voice list: hold this rather than say it
@@ -212,7 +288,7 @@
       if (!this._voiceList().length && !this._gaveUpWaiting) {
         if (this._pending && this._pending.resolve) this._pending.resolve(false);
         return new Promise(resolve => {
-          this._pending = { text: text, element: element, resolve: resolve };
+          this._pending = { text: text, element: element, opts: opts, resolve: resolve };
         });
       }
 
@@ -220,7 +296,8 @@
 
       const runs = this._byLanguage(text);
       if (element) this.highlightCurrent(element);
-      this.isReading = true;
+      this._brief = Boolean(opts && opts.brief);
+      this._setReading(true);
       this._turn = (this._turn || 0) + 1;
       return new Promise(resolve => this._playRuns(runs, this._turn, resolve));
     }
@@ -234,14 +311,26 @@
      */
     _playRuns(runs, turn, done) {
       done = done || (() => {});
+      // One pass through the runs. A pause hands the caller's `done` on to
+      // the pass resume() starts, and the old pass must then never answer
+      // for it: its last sentence can report ending after the resume.
+      const pass = { done: done, live: true };
       const next = i => {
-        if (turn !== this._turn) { done(false); return; }   // stopped, or replaced
+        if (turn !== this._turn) {
+          if (!pass.live) return;                          // handed on by resume()
+          if (this._paused && this._paused.pass === pass) return;   // paused: keep waiting
+          done(false);                                     // stopped, or replaced
+          return;
+        }
         if (i >= runs.length) {
+          this._playing = null;
           this.unhighlight();
-          this.isReading = false;
+          this._setReading(false);
           done(true);
           return;
         }
+        this._playing = { runs: runs, index: i, pass: pass };
+        this._charIndex = 0;
         this._playRun(runs[i]).then(() => next(i + 1), () => next(i + 1));
       };
       next(0);
@@ -311,11 +400,18 @@
         if (voice) utter.voice = voice;
 
         const started = Date.now();
+        // Where the voice is, word by word, so a pause can resume on the
+        // same word. Voices that report nothing resume from the run's start.
+        utter.onboundary = e => {
+          if (e && typeof e.charIndex === 'number') this._charIndex = e.charIndex;
+        };
         utter.onend = () => {
           // Nothing installed for this script and nothing bundled either: the
           // engine returns at once without making a sound, and the user is
-          // owed an explanation rather than silence.
-          if (!voice && run.lang !== 'en' && run.text.length > 20 && Date.now() - started < 250) {
+          // owed an explanation rather than silence. A pause ends the sentence
+          // early too, and is not that.
+          if (!voice && run.lang !== 'en' && run.text.length > 20 && Date.now() - started < 250 &&
+              !this._paused) {
             this._reportMissingVoice(run.lang);
           }
           finish();
@@ -392,12 +488,18 @@
       this._turn = (this._turn || 0) + 1;   // abandon anything still queued
       if (this._pending && this._pending.resolve) this._pending.resolve(false);
       this._pending = null;
-      try { this.synth.cancel(); } catch (e) { /* ok */ }
-      try {
-        chrome.runtime.sendMessage({ action: 'stopOffline' }, () => { void chrome.runtime.lastError; });
-      } catch (e) { /* the worker may be asleep; nothing is playing then */ }
-      this.isReading = false;
+      // A paused read is over too: its caller stops waiting.
+      const paused = this._paused;
+      this._paused = null;
+      this._playing = null;
+      this._cancelAudio();
+      this._setReading(false);
       this.unhighlight();
+      if (paused) {
+        this._notify();
+        paused.pass.live = false;
+        paused.pass.done(false);
+      }
     }
 
     highlightCurrent(element) {
@@ -434,6 +536,185 @@
       } catch (e) { /* nothing more we can do */ }
     };
   }
+
+  // Every module that talks does it through here, so everything is said in
+  // the voice and at the speed the user chose, and Stop reaches all of it.
+  // Before this, the picture board and a few helpers spoke in the browser's
+  // default voice, ignoring a speed set for someone who listens fast.
+  window.AccessiFlowSpeak = (text, opts) => {
+    if (ttsEngine) return ttsEngine.speak(text, null, opts);
+    return Promise.resolve(false);
+  };
+
+  // ── Saying what the user types ────────────────────────────
+  let keyEcho = null;
+  try {
+    keyEcho = new window.AccessiFlowKeyEcho();
+    keyEcho.setSpeaker(text => { if (ttsEngine) ttsEngine.speak(text, null, { brief: true }); });
+  } catch (e) { _warn('Key echo init failed: ' + e.message); }
+
+  // ── Stopping and pausing speech ───────────────────────────
+  //
+  // One Stop for everything AccessiFlow says: the page being read, a summary,
+  // the screen reader, and whatever it had queued next. Reached from the
+  // popup, Alt+Shift+S, Ctrl on its own (as in NVDA), and a button on the page
+  // that shows only while something long is being read.
+  //
+  // Shift on its own pauses instead, and pressing it again carries on from
+  // the same place, also as in NVDA. The button on the page has a Pause
+  // beside its Stop, for anyone reading with the mouse.
+  function stopAll() {
+    try { if (screenReader && screenReader.active) screenReader.stopTalking(); } catch (e) { /* ok */ }
+    try { if (ttsEngine) ttsEngine.stop(); } catch (e) { /* ok */ }
+    SpeechControls.hide();
+  }
+
+  /** Pause, or carry on after a pause. Returns what it did, or '' if nothing. */
+  function togglePause() {
+    if (!ttsEngine) return '';
+    if (ttsEngine.isPaused) return ttsEngine.resume() ? 'resumed' : '';
+    return ttsEngine.pause() ? 'paused' : '';
+  }
+
+  const SpeechControls = {
+    _host: null,
+    _timer: null,
+    _pause: null,               // { button, icon, label, hint }
+    // How long speech has to run before the buttons are worth showing. A
+    // control's name or a typed key is over before anyone could reach them.
+    DELAY: 1000,
+
+    update(reading, brief) {
+      clearTimeout(this._timer);
+      this._timer = null;
+      // Someone using the built-in reader stops it with Ctrl and pauses it
+      // with Shift, like any screen reader; buttons popping up at every long
+      // line would only get in the way.
+      const readerOn = Boolean(screenReader && screenReader.active);
+      if (ttsEngine && ttsEngine.isPaused) {
+        if (!readerOn && extensionEnabled) this.show(true);
+        return;
+      }
+      if (!reading) { this.hide(); return; }
+      if (brief || readerOn) return;
+      if (this._shown()) { this.show(false); return; }   // carrying on after a pause
+      this._timer = setTimeout(() => {
+        this._timer = null;
+        if (ttsEngine && ttsEngine.isReading && extensionEnabled) this.show(false);
+      }, this.DELAY);
+    },
+
+    _shown() {
+      return Boolean(this._host) && this._host.style.display !== 'none';
+    },
+
+    show(paused) {
+      if (!this._host) this._build();
+      const p = this._pause;
+      p.label.textContent = paused ? 'Carry on' : 'Pause';
+      p.icon.dataset.state = paused ? 'play' : 'pause';
+      p.icon.style.cssText = paused ? this.PLAY_ICON : this.PAUSE_ICON;
+      p.button.setAttribute('aria-label', paused
+        ? 'Carry on reading from where it paused. Shift also carries on.'
+        : 'Pause reading. Shift also pauses.');
+      this._host.style.display = '';
+    },
+
+    hide() {
+      clearTimeout(this._timer);
+      this._timer = null;
+      if (this._host) this._host.style.display = 'none';
+    },
+
+    PAUSE_ICON: 'display: inline-block; width: 12px; height: 14px; border-left: 4px solid currentColor; ' +
+      'border-right: 4px solid currentColor; box-sizing: border-box;',
+    PLAY_ICON: 'display: inline-block; width: 0; height: 0; border-top: 7px solid transparent; ' +
+      'border-bottom: 7px solid transparent; border-left: 12px solid currentColor;',
+
+    _button(primary, action) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.action = action;
+      button.style.cssText = 'font: 700 16px/1.2 system-ui, "Segoe UI", sans-serif; ' +
+        (primary ? 'color: #16181d; background: #ffd400; ' : 'color: #ffd400; background: #16181d; ') +
+        'border: 3px solid ' + (primary ? '#16181d' : '#ffd400') + '; border-radius: 999px; ' +
+        'padding: 12px 20px; min-height: 48px; cursor: pointer; display: inline-flex; align-items: center; gap: 10px;';
+      const icon = document.createElement('span');
+      icon.setAttribute('aria-hidden', 'true');
+      const label = document.createElement('span');
+      const hint = document.createElement('span');
+      hint.style.cssText = 'font-weight: 600; font-size: 13px; opacity: .8;';
+      button.append(icon, label, hint);
+      return { button: button, icon: icon, label: label, hint: hint };
+    },
+
+    // In a shadow root, so the page's styles cannot hide or restyle it. The
+    // id starts "accessiflow-sr-" so the built-in reader never reads it as
+    // part of the page.
+    _build() {
+      const host = document.createElement('div');
+      host.id = 'accessiflow-sr-stop';
+      host.style.cssText = 'all: initial; position: fixed; right: 16px; bottom: 16px; z-index: 2147483646; display: none;';
+      const root = host.attachShadow ? host.attachShadow({ mode: 'open' }) : host;
+      const bar = document.createElement('div');
+      bar.setAttribute('role', 'group');
+      bar.setAttribute('aria-label', 'Reading aloud');
+      bar.style.cssText = 'display: flex; gap: 8px; filter: drop-shadow(0 6px 14px rgba(0,0,0,.45));';
+
+      const pause = this._button(false, 'pause');
+      pause.hint.textContent = '(Shift)';
+      pause.button.addEventListener('click', () => togglePause());
+
+      const stop = this._button(true, 'stop');
+      stop.icon.style.cssText = 'display: inline-block; width: 14px; height: 14px; background: currentColor; border-radius: 2px;';
+      stop.label.textContent = 'Stop reading';
+      stop.hint.textContent = '(Ctrl)';
+      // Said as one phrase; the visible pieces would run together.
+      stop.button.setAttribute('aria-label', 'Stop reading. Ctrl also stops it.');
+      stop.button.addEventListener('click', () => stopAll());
+
+      bar.append(pause.button, stop.button);
+      root.appendChild(bar);
+      document.documentElement.appendChild(host);
+      this._host = host;
+      this._pause = pause;
+    }
+  };
+
+  if (ttsEngine) {
+    ttsEngine.onStateChange = (reading, brief) => SpeechControls.update(reading, brief);
+  }
+
+  // Ctrl pressed on its own stops speech, the same key every screen reader
+  // uses. Only while something is being said or is paused, and the key is
+  // never swallowed, so Ctrl+C and the rest work exactly as before.
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Control' || e.altKey || e.shiftKey || e.metaKey) return;
+    if (!ttsEngine || (!ttsEngine.isReading && !ttsEngine.isPaused)) return;
+    stopAll();
+  }, true);
+
+  // Shift pressed and let go on its own pauses, and again carries on. "On its
+  // own" matters: Shift is also how capitals are typed, how Tab goes back,
+  // and half of every Alt+Shift shortcut, so any other key or a click while
+  // it is down means it was not a pause. Acted on when it is let go, for the
+  // same reason, and never swallowed.
+  let shiftAlone = false;
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Shift') {
+      if (!e.repeat) shiftAlone = !(e.ctrlKey || e.altKey || e.metaKey);
+      return;
+    }
+    shiftAlone = false;
+  }, true);
+  document.addEventListener('mousedown', () => { shiftAlone = false; }, true);
+  document.addEventListener('keyup', e => {
+    if (e.key !== 'Shift') return;
+    const alone = shiftAlone;
+    shiftAlone = false;
+    if (!alone || !extensionEnabled) return;
+    togglePause();
+  }, true);
 
   // ── Describing pictures out loud ──────────────────────────
   //
@@ -663,9 +944,17 @@
 
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== 'local' || !changes[SCREEN_READER_KEY]) return;
-      const on = !!changes[SCREEN_READER_KEY].newValue;
-      if (on !== screenReaderOn) applyScreenReader(on, on && document.hasFocus());
+      if (area !== 'local') return;
+      if (changes[SCREEN_READER_KEY]) {
+        const on = !!changes[SCREEN_READER_KEY].newValue;
+        if (on !== screenReaderOn) applyScreenReader(on, on && document.hasFocus());
+      }
+      // The setup changed, from the popup, the setup page or a shortcut in
+      // another tab, or this site's exceptions did. Every open page follows.
+      const Store = window.AccessiFlowSettings;
+      if (Store && (changes[Store.SETUP_KEY] || changes[Store.siteKey(location.hostname)])) {
+        scheduleReapply();
+      }
     });
   } catch (e) { /* not in an extension */ }
 
@@ -724,15 +1013,16 @@
         } catch (e) { _warn('Focus lock apply error: ' + e.message); }
       }
 
-      // Form briefs. Also not destroyed first: a brief the user is reading
-      // should not vanish because they nudged the text size.
+      // Form summaries, on every form of two questions or more, whatever the
+      // settings. Not destroyed first: a summary the user is reading should
+      // not vanish because they nudged the text size.
       if (formsModule) {
         try {
           formsModule.setSpeaker(message => {
-            // Only when AccessiFlow is the one doing the reading. A screen
-            // reader announces the brief itself, and two voices at once is worse
-            // than one.
-            if (currentSettings.ttsReadOnFocus && ttsEngine) ttsEngine.speak(message);
+            // Read out only with AccessiFlow's own screen reader on, after it
+            // has named the field focus landed on. With it off the summary is
+            // shown, not spoken; another screen reader finds it as a status.
+            if (screenReader && screenReader.active) screenReader.sayAfter(message);
           });
           formsModule.apply(settings);
         } catch (e) { _warn('Forms apply error: ' + e.message); }
@@ -825,11 +1115,18 @@
         if (settings.ttsVoice) ttsEngine.setVoice(settings.ttsVoice);
       }
 
+      // Say what is typed
+      if (keyEcho) {
+        try { keyEcho.apply(settings.keyEcho || 'off'); } catch (e) { _warn('Key echo apply error: ' + e.message); }
+      }
+
       // Update dynamic style
       dynamicStyle.textContent = css;
 
-      // Save settings per hostname
-      saveSettings(settings);
+      // Nothing is saved from here. What applies is worked out from the
+      // setup and this site's exceptions; saving the result back used to pin
+      // every value on every site the user ever visited, so a change to the
+      // setup never reached them.
     } catch (e) {
       _warn('applySettings error: ' + e.message);
     }
@@ -857,34 +1154,51 @@
     }, 1200);
   }
 
-  // ── Settings Persistence ──────────────────────────────────
-  function getSettingsKey() {
-    return 'settings_' + location.hostname;
+  // ── Settings: the setup, then this site's exceptions ──────
+  //
+  // Worked out by modules/settings-store.js, which the popup and the setup
+  // page share, so all three agree on what is on here.
+
+  const Store = window.AccessiFlowSettings;
+  let pausedHere = false;        // the user turned AccessiFlow off for this site
+  let lastApplied = null;        // what applyStored last applied, as JSON
+
+  function applyStored(state) {
+    const result = Store.resolve(state.setup, state.site);
+    if (result.paused) {
+      if (!pausedHere) {
+        pausedHere = true;
+        lastApplied = null;
+        // Leave the page exactly as the site made it. The screen reader is
+        // the exception: it is how a blind user reaches the switch to turn
+        // AccessiFlow back on.
+        destroyAll({ keepReader: true });
+        blindMode = false;
+        _log('Paused on ' + location.hostname);
+      }
+      return;
+    }
+    pausedHere = false;
+    const json = JSON.stringify(result.settings);
+    if (json === lastApplied) return;   // a change elsewhere that does not touch this page
+    lastApplied = json;
+    applySettings(result.settings);
   }
 
-  function saveSettings(settings) {
+  function loadSettings(first) {
+    if (!Store) {
+      _warn('Settings store missing; running repairs only.');
+      if (blindMode && blindModule) { try { blindModule.runAll(); } catch (e) { /* ok */ } }
+      return;
+    }
     try {
-      const key = getSettingsKey();
-      chrome.storage.local.set({ [key]: settings });
-    } catch (e) { _warn('saveSettings error: ' + e.message); }
-  }
-
-  function loadSettings() {
-    try {
-      const key = getSettingsKey();
-      chrome.storage.local.get([key, SCREEN_READER_KEY], data => {
-        screenReaderOn = !!data[SCREEN_READER_KEY];
-        // Last, so the repairs above have already named what it will read.
-        setTimeout(() => applyScreenReader(screenReaderOn, false), 0);
-        if (data[key]) {
-          _log('Loaded saved settings for ' + location.hostname);
-          applySettings(data[key]);
-        } else {
-          // No saved settings, so just run the blind module
-          if (blindMode && blindModule) {
-            try { blindModule.runAll(); scheduleAutoHeal(); } catch (e) { _warn('Blind auto-run error: ' + e.message); }
-          }
+      Store.load(location.hostname).then(state => {
+        if (first) {
+          screenReaderOn = state.reader;
+          // Last, so the repairs have already named what it will read.
+          setTimeout(() => applyScreenReader(screenReaderOn, false), 0);
         }
+        applyStored(state);
       });
     } catch (e) {
       _warn('loadSettings error: ' + e.message);
@@ -894,8 +1208,52 @@
     }
   }
 
+  // A tab in the background waits until it is looked at: dragging a slider
+  // in the popup would otherwise rebuild every open tab on every step.
+  let reapplyTimer = null;
+  let reapplyWhenVisible = false;
+  function scheduleReapply() {
+    if (!extensionEnabled) return;
+    if (document.hidden) { reapplyWhenVisible = true; return; }
+    clearTimeout(reapplyTimer);
+    reapplyTimer = setTimeout(() => loadSettings(false), 40);
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && reapplyWhenVisible) {
+      reapplyWhenVisible = false;
+      scheduleReapply();
+    }
+  });
+
+  /**
+   * A change made on this page by a shortcut. It goes into the setup, so it
+   * holds on every site, the same as a change made in the popup.
+   */
+  function saveEverywhere(changes) {
+    if (!Store) return Promise.resolve();
+    return Store.load(location.hostname).then(state => {
+      const next = Store.change(state, changes, 'everywhere');
+      // A shortcut pressed here means the user wants it here: un-pause.
+      return Store.save(location.hostname, Store.setPaused(next, false));
+    });
+  }
+
+  /** A shortcut that flips one setting, at once and for every site. */
+  function toggleSetting(id) {
+    const value = !currentSettings[id];
+    currentSettings[id] = value;
+    applySettings(currentSettings);
+    lastApplied = JSON.stringify(currentSettings);
+    saveEverywhere({ [id]: value });
+    return value;
+  }
+
   // ── Reset / Destroy All ───────────────────────────────────
-  function destroyAll() {
+  // opts.keepReader leaves the built-in screen reader running: it is switched
+  // on for every site at once, and pausing one site must not strand a blind
+  // user with no voice to find their way back.
+  function destroyAll(opts) {
+    const keepReader = Boolean(opts && opts.keepReader);
     try { if (visionModule) visionModule.destroy(); } catch (e) { /* ok */ }
     try { if (contrastModule) contrastModule.destroy(); } catch (e) { /* ok */ }
     try { if (focusLockModule) focusLockModule.destroy(); } catch (e) { /* ok */ }
@@ -919,10 +1277,13 @@
     try { if (blindModule) blindModule.destroy(); } catch (e) { /* ok */ }
     try { ImageSpeech.disable(); } catch (e) { /* ok */ }
     try { HoverReader.applyHover(false); HoverReader.applyFocus(false); } catch (e) { /* ok */ }
-    try { if (screenReader) screenReader.disable(); } catch (e) { /* ok */ }
-    try { if (ttsEngine) ttsEngine.stop(); } catch (e) { /* ok */ }
+    try { if (keyEcho) keyEcho.apply('off'); } catch (e) { /* ok */ }
+    try { if (screenReader && !keepReader) screenReader.disable(); } catch (e) { /* ok */ }
+    try { if (ttsEngine && !keepReader) ttsEngine.stop(); } catch (e) { /* ok */ }
+    SpeechControls.hide();
     if (dynamicStyle) dynamicStyle.textContent = '';
     currentSettings = {};
+    lastApplied = null;
   }
 
   // ── Message Router ────────────────────────────────────────
@@ -950,9 +1311,9 @@
           break;
 
         case 'resetSettings':
-          destroyAll();
-          const key = getSettingsKey();
-          chrome.storage.local.remove(key);
+          // Forgets this site's exceptions; the setup applies here again.
+          // Removing the key reaches the storage listener, which re-applies.
+          if (Store) chrome.storage.local.remove(Store.siteKey(location.hostname));
           sendResponse({ success: true });
           break;
 
@@ -961,10 +1322,14 @@
           if (!extensionEnabled) {
             destroyAll();
           } else {
-            loadSettings();
+            loadSettings(true);
           }
           sendResponse({ success: true, enabled: extensionEnabled });
           break;
+
+        case 'summarizeAloud':
+          summarizeAloud().then(result => sendResponse(Object.assign({ success: true }, result)));
+          return true;   // answered once the summary is in
 
         case 'runAudit':
           if (auditModule) {
@@ -1090,7 +1455,7 @@
           break;
 
         case 'ttsStop':
-          if (ttsEngine) ttsEngine.stop();
+          stopAll();
           sendResponse({ success: true });
           break;
 
@@ -1252,26 +1617,107 @@
     }
   }
 
+  /**
+   * Adds a profile to the setup, so it holds on every site. Adding, never
+   * replacing: one keypress must not undo a setup someone spent time on.
+   * It also clears this site's own values for the settings it touches, so
+   * the profile shows here at once.
+   */
   function applyProfile(profile) {
-    if (!profile) return;
-    const next = Object.assign({}, profile.settings);
-    applySettings(next);
-    saveSettings(next);
-    _log('Profile applied: ' + profile.id);
-    tellUser(profile.label + ' profile on. ' + profile.desc);
+    if (!profile || !Store) return;
+    Store.load(location.hostname).then(state => {
+      const bundle = Store.mergeBundles([profile.id]);
+      let next = Store.change(state, bundle, 'everywhere');
+      next = { setup: Store.addNeed(next.setup, profile.id), site: next.site };
+      next = Store.setPaused(next, false);
+      return Store.save(location.hostname, next).then(() => applyStored(next));
+    }).then(() => {
+      _log('Profile added: ' + profile.id);
+      tellUser(profile.label + ' added to your setup, on every site. ' + profile.desc);
+    });
   }
 
-  function turnEverythingOff() {
-    destroyAll();
-    try { chrome.storage.local.remove(getSettingsKey()); } catch (e) { /* ok */ }
-    tellUser('Everything off. This page is back to normal.');
+  /**
+   * Alt+Shift+8: the "this page looks wrong" key. Pauses AccessiFlow on this
+   * site only, and pressing it again brings everything back.
+   */
+  function togglePauseHere() {
+    if (!Store) return;
+    Store.load(location.hostname).then(state => {
+      const pause = !(state.site && state.site._off);
+      const next = Store.setPaused(state, pause);
+      return Store.save(location.hostname, next).then(() => {
+        applyStored(next);
+        tellUser(pause
+          ? 'AccessiFlow paused on this site. The page is back to normal. Alt Shift 8 again turns it back on.'
+          : 'AccessiFlow is back on for this site.');
+      });
+    });
   }
 
-  /** Reads the profile list out, so the shortcuts can be found by ear. */
-  function listProfiles() {
+  /** Reads the main shortcuts out, so they can be found by ear. */
+  function listShortcuts() {
+    const list = window.ACCESSIFLOW_SHORTCUTS;
+    if (list && list.length) {
+      const main = list.filter(s => s.main);
+      tellUser('AccessiFlow keys. ' + main.map(s => s.spoken || s.keys + ', ' + s.what).join('. ') +
+        '. The full list is under Help in the AccessiFlow panel.');
+      return;
+    }
     if (!PROFILES.length) return;
-    const spoken = PROFILES.map(p => 'Alt Shift ' + p.key + ', ' + p.label).join('. ');
-    tellUser('AccessiFlow profiles. ' + spoken + '. Alt Shift 8, everything off.');
+    const spoken = PROFILES.filter(p => p.key).map(p => 'Alt Shift ' + p.key + ', ' + p.label).join('. ');
+    tellUser('AccessiFlow profiles. ' + spoken + '. Alt Shift 8 pauses this site.');
+  }
+
+  // ── Summarise this page, out loud ─────────────────────────
+  //
+  // The AI's three key points when the helper can be reached, and an outline
+  // built from the page itself when it cannot, so the button never answers
+  // with an error and silence. Always spoken, not only shown: the summary
+  // exists mostly for people who cannot skim the page with their eyes.
+  function pageOutline() {
+    const title = (document.title || '').trim();
+    const headings = Array.from(document.querySelectorAll('h1, h2, h3'))
+      .filter(h => !h.closest('#accessiflow-page-summary, [aria-hidden="true"]'))
+      .map(h => h.textContent.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    const main = document.querySelector('main, [role="main"], article') || document.body;
+    const para = Array.from(main.querySelectorAll('p'))
+      .map(p => p.textContent.replace(/\s+/g, ' ').trim())
+      .find(text => text.length > 80) || '';
+
+    const parts = [];
+    if (title) parts.push('This page is called ' + title + '.');
+    if (headings.length) {
+      parts.push('It has ' + headings.length + (headings.length === 1 ? ' heading' : ' headings') +
+        ', starting with: ' + headings.slice(0, 5).join('; ') + '.');
+    }
+    if (para) parts.push('It begins: ' + (para.length > 300 ? para.slice(0, 300).replace(/\s\S*$/, '') + '…' : para));
+    return parts.join(' ');
+  }
+
+  function summarizeAloud() {
+    tellUser('Summarising this page. One moment.');
+    const outline = reason => {
+      const text = pageOutline();
+      if (!text) {
+        // Nothing to outline either: the reason is the whole answer.
+        const said = reason || 'This page has almost no text to summarise.';
+        tellUser(said);
+        return { kind: 'outline', text: said };
+      }
+      if (aiModule) { try { aiModule._announceSummary(text); } catch (e) { /* ok */ } }
+      tellUser((reason ? reason + ' Here is an outline instead. ' : '') + text);
+      return { kind: 'outline', text: text };
+    };
+    if (!aiModule) return Promise.resolve(outline('The summary helper is not loaded.'));
+    return aiModule.summarizeBullets().then(bullets => {
+      if (bullets && bullets.length) {
+        tellUser('The key points. ' + bullets.join(' '));
+        return { kind: 'bullets', bullets: bullets };
+      }
+      return outline('The helper could not summarise this page.');
+    }).catch(err => outline((err && err.message) || 'The summary helper could not be reached.'));
   }
 
   // ── Keyboard Shortcuts ────────────────────────────────────
@@ -1285,8 +1731,8 @@
     const digit = /^Digit([0-9])$/.exec(e.code || '');
     if (digit) {
       const pressed = digit[1];
-      if (pressed === '9') listProfiles();
-      else if (pressed === '8') turnEverythingOff();
+      if (pressed === '9') listShortcuts();
+      else if (pressed === '8') togglePauseHere();
       else {
         const profile = PROFILES.find(p => p.key === pressed);
         if (!profile) return;          // an unassigned digit belongs to the page
@@ -1308,41 +1754,34 @@
         if (ttsEngine) ttsEngine.readPage();
         handled = true;
         break;
-      case 'S': // Stop TTS
-        if (ttsEngine) ttsEngine.stop();
+      case 'S': // Stop everything AccessiFlow is saying
+        stopAll();
         handled = true;
         break;
+      // The toggles below are saved into the setup, like a change made in
+      // the popup, so they hold on the next page and the next site.
       case 'C': // Toggle high contrast
-        currentSettings.highContrast = !currentSettings.highContrast;
-        applySettings(currentSettings);
+        toggleSetting('highContrast');
         handled = true;
         break;
       case 'F': // Toggle the focus halo. It supersedes the plain outline,
         // which is inert while the halo is on, so toggling the outline here
         // would do nothing visible for anyone using a profile.
-        currentSettings.focusHalo = !currentSettings.focusHalo;
-        applySettings(currentSettings);
+        toggleSetting('focusHalo');
         handled = true;
         break;
       case 'T': // Toggle large cursor
-        currentSettings.largeCursor = !currentSettings.largeCursor;
-        applySettings(currentSettings);
+        toggleSetting('largeCursor');
         handled = true;
         break;
       case 'M': // Toggle reading mask
-        currentSettings.readingMask = !currentSettings.readingMask;
-        applySettings(currentSettings);
+        toggleSetting('readingMask');
         handled = true;
         break;
-      case 'E': // Keyboard-only mode. Saved, unlike the toggles above: someone
-        // who cannot use a mouse should not have to find this again on every
-        // page load.
+      case 'E': // Keyboard-only mode
         e.preventDefault();
         e.stopPropagation();
-        currentSettings.keyboardOnly = !currentSettings.keyboardOnly;
-        applySettings(currentSettings);
-        saveSettings(currentSettings);
-        tellUser(currentSettings.keyboardOnly
+        tellUser(toggleSetting('keyboardOnly')
           ? 'Keyboard-only mode on. Press F to label everything you can click, or H for the list of keys.'
           : 'Keyboard-only mode off.');
         return;
@@ -1352,8 +1791,7 @@
         } else if (speechModule) {
           // The shortcut is the discoverable part, so turn the feature on
           // rather than answering a keypress with silence.
-          currentSettings.speechToText = true;
-          applySettings(currentSettings);
+          toggleSetting('speechToText');
           speechModule.toggleDictation();
         }
         e.preventDefault();
@@ -1400,15 +1838,10 @@
         }).catch(err => tellUser(err.message));
         return;
 
-      case 'B': // Brief: three bullet points
+      case 'B': // Brief: summarise this page out loud
         e.preventDefault();
         e.stopPropagation();
-        if (!aiModule) return;
-        tellUser('Summarising this page. One moment.');
-        aiModule.summarizeBullets().then(bullets => {
-          if (bullets.length) tellUser('The key points. ' + bullets.join(' '));
-          else tellUser('This page could not be summarised.');
-        }).catch(err => tellUser(err.message));
+        summarizeAloud();
         return;
 
       case 'O': // Original: undo the plain-language rewrite
@@ -1433,8 +1866,6 @@
         }).catch(err => tellUser(err.message));
         return;
 
-      case 'N': // Next heading, handled by BlindModule
-        break;
     }
 
     if (handled) {
@@ -1479,8 +1910,8 @@
     setTimeout(() => { region.textContent = ''; }, 2000);
   }
 
-  // ── Auto-load saved settings ──────────────────────────────
-  loadSettings();
+  // ── Apply the setup, and this site's exceptions ───────────
+  loadSettings(true);
 
   // Captions follow the tab, not the page: a capture started before this page
   // loaded is still running, and its caption box belongs here too.

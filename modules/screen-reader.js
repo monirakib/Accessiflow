@@ -25,6 +25,8 @@
 //     Insert+1     key help: every key says what it does instead of doing it
 //     Insert+D     describe the picture the cursor is on, with AI if the page gave it no description
 //   Control+Alt+arrows move cell by cell in a table, saying the headers.
+//   Shift on its own pauses speech, and again carries on from the same word
+//   (handled in content.js, which owns the voice).
 //
 // It also reads what the page announces by itself (live regions, alerts),
 // says the new page when a single-page app changes route, and follows
@@ -79,7 +81,7 @@
     'H jumps to the next heading, 1 to 6 to a heading level, K link, B button, F form field, ' +
     'E edit field, X check box, D landmark, L list, T table, G graphic. Shift with any of them goes back. ' +
     'Enter or Space presses what you are on. Tab moves between controls. ' +
-    'Insert and down arrow reads everything. Control stops. ' +
+    'Insert and down arrow reads everything. Control stops. Shift pauses, and Shift again carries on. ' +
     'Insert and Space switches between browse and focus mode; Escape leaves a text box. ' +
     'Insert and F7 lists the headings, links, landmarks and fields. Insert, Control and F finds text. ' +
     'In a table, Control, Alt and the arrows move cell by cell. ' +
@@ -804,6 +806,15 @@
     stopTalking() {
       this._sayAllTurn++;
       if (this._speech) this._speech.stop();
+    }
+
+    /**
+     * Says this once the current speech is finished, as a polite live
+     * region would be: a form's summary after the name of the field focus
+     * just landed on, rather than cutting it off.
+     */
+    sayAfter(text) {
+      if (this.active && this._speech && text) this._speech.queue(text);
     }
 
     // ── Pressing things ────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to settings</a>
+  <a class="skip-link" href="#main">Skip to main content</a>
 
   <!-- Icon sprite. Every <use> of these is aria-hidden; the text beside it
        carries the meaning. -->
@@ -30,6 +30,12 @@
       <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.5v8.2"/><path d="M6.8 6.6a7.6 7.6 0 1 0 10.4 0"/></symbol>
       <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor" stroke="none"/></symbol>
       <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.4 9.3a2.7 2.7 0 1 1 3.4 2.6c-.6.2-.9.7-.9 1.3v.6"/><circle cx="12" cy="17.2" r="1.05" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 4.8v14.4L19 12Z"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.8"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h7"/><circle cx="4.5" cy="6.5" r="1.1"/><circle cx="4.5" cy="12" r="1.1"/><circle cx="4.5" cy="17.5" r="1.1"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><circle cx="8.6" cy="9.6" r="1.8"/><path d="m20.5 15.8-4.8-4.8-8.4 8.4"/></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></symbol>
+      <symbol id="i-next" viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5"/></symbol>
     </defs>
   </svg>
 
@@ -40,7 +46,7 @@
       <div class="brand-text">
         <h1>AccessiFlow</h1>
         <p class="brand-site">
-          Adjusting <span id="currentHostname" class="site-name">this page</span>
+          On <span id="currentHostname" class="site-name">this page</span>
         </p>
       </div>
     </div>
@@ -84,219 +90,264 @@
     </div>
   </header>
 
-  <!-- ── Search ─────────────────────────────────────────────────────── -->
-  <div class="search-bar">
-    <svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="#i-search"/></svg>
-    <label for="settingSearch" class="sr-only">Search all settings</label>
-    <input type="search" id="settingSearch" placeholder="Search, e.g. bigger text or pictures"
-           autocomplete="off" spellcheck="false" aria-describedby="searchHint">
-    <button type="button" id="btnClearSearch" class="clear-btn" hidden>
-      <span aria-hidden="true">&times;</span><span class="sr-only">Clear search</span>
-    </button>
-  </div>
-  <p id="searchHint" class="sr-only">Type to search every setting and button. Matching sections open automatically.</p>
-
-  <!-- ── Disability filter ──────────────────────────────────────────────
-       Nine setting groups is a lot to read past when three of them are
-       yours. Choosing a need moves those groups to the top and puts the
-       rest away. Options are rendered from the schema by popup.js. -->
-  <div class="audience-bar">
-    <label for="audienceFilter" class="audience-label">Show settings for</label>
-    <select id="audienceFilter" aria-describedby="audienceHint"></select>
-    <p id="audienceHint" class="audience-hint" hidden>Choose a need to show only the settings that help with it.</p>
-    <button type="button" id="btnClearAudience" class="btn btn-quiet audience-reset" hidden>
-      Show every group
-    </button>
-  </div>
-
-  <!-- ── Settings ───────────────────────────────────────────────────── -->
   <main id="main" tabindex="-1">
 
-    <!-- ── AI help ────────────────────────────────────────────────────
-         First and open: these three buttons are what people come back
-         for, and they should not need a search to be found. -->
-    <section class="section" id="section-ai">
-      <h2 class="section-heading">
-        <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-ai">
-          <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-spark"/></svg>
-          <span class="section-title">
-            <span class="section-label">Smart help</span>
-            <span class="section-desc">Describes pictures, names buttons, and makes pages easier to read.</span>
-          </span>
-          <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
-        </button>
-      </h2>
-      <div class="section-body" id="body-ai" hidden>
-        <div class="ai-actions">
-          <button type="button" class="btn btn-primary btn-full" id="btnAiAltText">
-            Describe the pictures
-            <span class="btn-sub" id="aiImageCount"></span>
-          </button>
-          <button type="button" class="btn btn-primary btn-full" id="btnAiSummary">
-            Tell me what this page is about
-          </button>
-          <button type="button" class="btn btn-primary btn-full" id="btnAiLinks">
-            Fix confusing links
-            <span class="btn-sub" id="aiLinkCount"></span>
-          </button>
-          <button type="button" class="btn btn-primary btn-full" id="btnAiControls">
-            Name the unlabelled buttons
-            <span class="btn-sub" id="aiControlCount"></span>
-          </button>
-          <button type="button" class="btn btn-primary btn-full" id="btnAiSimplify">
-            Rewrite in plain language
-            <span class="btn-sub" id="aiParagraphCount"></span>
-          </button>
-          <button type="button" class="btn btn-quiet btn-full" id="btnAiRestore" hidden>
-            Restore the original text
-          </button>
-          <button type="button" class="btn btn-primary btn-full" id="btnAiBullets">
-            Give me the three key points
-          </button>
-          <button type="button" class="btn btn-primary btn-full" id="btnAiForm">
-            What will this form ask for?
-          </button>
-          <button type="button" class="btn btn-quiet btn-full" id="btnAiCancel" hidden>Stop</button>
-        </div>
-
-        <div class="progress" id="aiProgress" hidden>
-          <div class="progress-track"><div class="progress-fill" id="aiProgressFill"></div></div>
-        </div>
-
-        <p id="aiStatus" class="status-text" role="status" aria-live="polite"></p>
-
-        <!-- Automatic fixes. One global agreement, asked for once: after it,
-             unlabelled buttons are named on every site without a press. -->
-        <div class="row ai-auto" data-panel-control="true">
-          <label class="row-main" for="aiConsent">
-            <span class="row-label">Fix unlabelled buttons automatically</span>
-            <input class="switch" type="checkbox" role="switch" id="aiConsent" aria-describedby="aiConsentDesc">
-          </label>
-          <p class="row-desc" id="aiConsentDesc">
-            On every site, name the buttons your screen reader would otherwise call
-            just &ldquo;button&rdquo;. The button&rsquo;s class names and nearby text
-            are sent to the helper service, never anything you type. Also lets form
-            summaries appear by themselves.
-          </p>
-          <p class="row-desc" id="aiAutoStatus" aria-live="polite"></p>
-          <button type="button" class="btn btn-quiet btn-full" id="btnAiForget">
-            Forget the remembered answers
-          </button>
-        </div>
-
-        <p class="panel-note">
-          Nothing to set up and nothing to pay for. AccessiFlow does the
-          technical part for you.
-        </p>
-
-        <details class="disclosure">
-          <summary>What happens to my page?</summary>
-          <p>
-            When you press one of these buttons, AccessiFlow sends that picture
-            or that page text to its helper service, which writes the answer and
-            sends it back. The service keeps nothing.
-          </p>
-          <p>
-            AccessiFlow remembers each answer on your own computer for 30 days,
-            so a page you come back to is fixed instantly and nothing is sent
-            twice. &ldquo;Forget the remembered answers&rdquo; clears them.
-          </p>
-          <p>
-            Nothing is sent without a button press unless you turn on
-            &ldquo;Fix unlabelled buttons automatically&rdquo;. Even then,
-            AccessiFlow makes at most 40 automatic requests an hour, and never
-            sends anything you have typed into a form. Rewritten text is always
-            marked as rewritten, with the original one press away.
-          </p>
-        </details>
+    <!-- ════ Home ══════════════════════════════════════════════════════
+         What most people open the panel for, and nothing else: whether
+         AccessiFlow is on here, what their setup is, four big buttons, and
+         the handful of settings that matter for the needs they chose. -->
+    <div id="homeView" class="view">
+      <div class="row site-row" data-panel-control="true">
+        <label class="row-main" for="siteOn">
+          <span class="row-label">On for this site</span>
+          <input class="switch" type="checkbox" role="switch" id="siteOn" aria-describedby="siteOnDesc" checked>
+        </label>
+        <p class="row-desc" id="siteOnDesc">Turn off to leave this site exactly as it is. Every other site keeps your setup.</p>
       </div>
-    </section>
 
-    <!-- Profiles: the shortest path from "I cannot read this" to relief. -->
-    <section class="section" id="section-profiles">
-      <h2 class="section-heading">
-        <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-profiles">
-          <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-spark"/></svg>
-          <span class="section-title">
-            <span class="section-label">Quick setup</span>
-            <span class="section-desc">Pick what fits you. Everything else is optional.</span>
-          </span>
-          <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+      <section class="card setup-card" aria-labelledby="setupTitle">
+        <div class="setup-text">
+          <h2 id="setupTitle" class="card-title">Your setup</h2>
+          <p id="setupNeeds" class="setup-needs">Not set up yet.</p>
+        </div>
+        <button type="button" id="btnChangeSetup" class="btn btn-quiet">Change</button>
+      </section>
+
+      <div class="action-grid" role="group" aria-label="Reading aloud and summaries">
+        <button type="button" id="btnHomeRead" class="action-btn">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-play"/></svg>
+          <span class="action-label">Read page aloud</span>
+          <span class="action-key" aria-hidden="true">Alt+Shift+R</span>
         </button>
-      </h2>
-      <div class="section-body" id="body-profiles" hidden>
-        <div class="profile-grid" id="profileGrid" role="group" aria-label="Accessibility profiles"></div>
-        <button type="button" id="btnTurnOff" class="btn btn-quiet btn-full">
-          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-power"/></svg>
-          Turn everything off
+        <button type="button" id="btnHomeStop" class="action-btn action-btn--stop">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-stop"/></svg>
+          <span class="action-label">Stop reading</span>
+          <span class="action-key" aria-hidden="true">Ctrl</span>
+        </button>
+        <button type="button" id="btnHomeSummary" class="action-btn">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-list"/></svg>
+          <span class="action-label">Summarise this page</span>
+          <span class="action-key" aria-hidden="true">Alt+Shift+B</span>
+        </button>
+        <button type="button" id="btnHomePictures" class="action-btn">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-image"/></svg>
+          <span class="action-label">Describe the pictures</span>
+          <span class="action-key" aria-hidden="true">Alt+Shift+D for one</span>
         </button>
       </div>
-    </section>
+      <p id="homeStatus" class="status-text" role="status" aria-live="polite"></p>
 
-    <!-- Schema-driven sections are rendered here by popup.js. -->
-    <div id="sections"></div>
+      <section class="card quick" aria-labelledby="quickTitle">
+        <h2 id="quickTitle" class="card-title">Quick settings</h2>
+        <div id="homeControls"></div>
+      </section>
 
-    <!-- ── Page check ───────────────────────────────────────────────── -->
-    <section class="section" id="section-audit">
-      <h2 class="section-heading">
-        <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-audit">
-          <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>
-          <span class="section-title">
-            <span class="section-label">Check this page</span>
-            <span class="section-desc">See how accessible the website itself is.</span>
-          </span>
-          <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+      <button type="button" id="btnAllSettings" class="btn btn-quiet btn-full btn-next">
+        <span class="btn-next-text">
+          <span>All settings</span>
+          <span class="btn-hint">Every option, search, Smart help and the page check</span>
+        </span>
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-next"/></svg>
+      </button>
+    </div>
+
+    <!-- ════ All settings ═════════════════════════════════════════════ -->
+    <div id="allView" class="view" hidden>
+      <div class="view-bar">
+        <button type="button" id="btnBackHome" class="btn btn-quiet btn-back">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-back"/></svg>
+          Home
         </button>
-      </h2>
-      <div class="section-body" id="body-audit" hidden>
-        <button type="button" class="btn btn-primary btn-full" id="btnRunAudit">Check this page now</button>
+        <h2 id="allTitle" class="view-title" tabindex="-1">All settings</h2>
+      </div>
 
-        <div id="auditScoreArea" class="score-area" hidden>
-          <div class="score-dial" id="auditScoreCircle">
-            <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false" class="score-ring">
-              <circle class="score-ring-track" cx="60" cy="60" r="52"/>
-              <circle class="score-ring-value" cx="60" cy="60" r="52" id="scoreRingValue"/>
-            </svg>
-            <p class="score-number"><span id="auditScoreValue">0</span><span class="score-max">/100</span></p>
+      <p id="pausedNote" class="panel-note" hidden>
+        AccessiFlow is off for this site. Changes here are saved for your other
+        sites. Turn it back on from Home.
+      </p>
+
+      <!-- Where a change goes. Every site is the default and comes back each
+           time the panel opens, so an exception is always a deliberate act. -->
+      <fieldset class="scope" aria-describedby="scopeDesc">
+        <legend>Changes apply to</legend>
+        <div class="segmented">
+          <label><input type="radio" name="scope" value="everywhere" checked><span>Every site</span></label>
+          <label><input type="radio" name="scope" value="site"><span>Only <span class="scope-host">this site</span></span></label>
+        </div>
+        <p id="scopeDesc" class="row-desc">A setting changed for this site only is marked, with a button to go back to your setup.</p>
+      </fieldset>
+
+      <!-- ── Search ────────────────────────────────────────────────── -->
+      <div class="search-bar">
+        <svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="#i-search"/></svg>
+        <label for="settingSearch" class="sr-only">Search all settings</label>
+        <input type="search" id="settingSearch" placeholder="Search, e.g. bigger text or pictures"
+               autocomplete="off" spellcheck="false" aria-describedby="searchHint">
+        <button type="button" id="btnClearSearch" class="clear-btn" hidden>
+          <span aria-hidden="true">&times;</span><span class="sr-only">Clear search</span>
+        </button>
+      </div>
+      <p id="searchHint" class="sr-only">Type to search every setting and button. Matching sections open automatically.</p>
+
+      <!-- ── Smart help ────────────────────────────────────────────── -->
+      <section class="section" id="section-ai">
+        <h2 class="section-heading">
+          <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-ai">
+            <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-spark"/></svg>
+            <span class="section-title">
+              <span class="section-label">Smart help</span>
+              <span class="section-desc">Describes pictures, names buttons, and makes pages easier to read.</span>
+            </span>
+            <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+        </h2>
+        <div class="section-body" id="body-ai" hidden>
+          <div class="ai-actions">
+            <button type="button" class="btn btn-primary btn-full" id="btnAiAltText">
+              Describe the pictures
+              <span class="btn-sub" id="aiImageCount"></span>
+            </button>
+            <button type="button" class="btn btn-primary btn-full" id="btnAiLinks">
+              Fix confusing links
+              <span class="btn-sub" id="aiLinkCount"></span>
+            </button>
+            <button type="button" class="btn btn-primary btn-full" id="btnAiControls">
+              Name the unlabelled buttons
+              <span class="btn-sub" id="aiControlCount"></span>
+            </button>
+            <button type="button" class="btn btn-primary btn-full" id="btnAiSimplify">
+              Rewrite in plain language
+              <span class="btn-sub" id="aiParagraphCount"></span>
+            </button>
+            <button type="button" class="btn btn-quiet btn-full" id="btnAiRestore" hidden>
+              Restore the original text
+            </button>
+            <button type="button" class="btn btn-primary btn-full" id="btnAiForm">
+              What will this form ask for?
+            </button>
+            <button type="button" class="btn btn-quiet btn-full" id="btnAiCancel" hidden>Stop</button>
           </div>
-          <p class="score-caption" id="auditScoreCaption"></p>
-        </div>
 
-        <div id="auditResultsList" class="issue-list" role="status" aria-live="polite"></div>
-      </div>
-    </section>
+          <div class="progress" id="aiProgress" hidden>
+            <div class="progress-track"><div class="progress-fill" id="aiProgressFill"></div></div>
+          </div>
 
-    <!-- ── Your settings ────────────────────────────────────────────── -->
-    <section class="section" id="section-data">
-      <h2 class="section-heading">
-        <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-data">
-          <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-slider"/></svg>
-          <span class="section-title">
-            <span class="section-label">Your settings</span>
-            <span class="section-desc">Save them, move them, or start again.</span>
-          </span>
-          <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
-        </button>
-      </h2>
-      <div class="section-body" id="body-data" hidden>
-        <p class="panel-note">
-          AccessiFlow remembers your choices for each website separately, so a
-          site you find hard can stay adjusted without changing the rest.
-        </p>
-        <div class="stack">
-          <button type="button" class="btn btn-quiet btn-full" id="btnExportSettings">Save my settings to a file</button>
-          <button type="button" class="btn btn-quiet btn-full" id="btnImportSettings">Load settings from a file</button>
-          <input type="file" id="importFile" accept=".json" hidden>
-          <button type="button" class="btn btn-danger btn-full" id="btnResetSettings">Start again for this site</button>
+          <p id="aiStatus" class="status-text" role="status" aria-live="polite"></p>
+
+          <!-- Automatic fixes. One global agreement, asked for once: after it,
+               unlabelled buttons are named on every site without a press. -->
+          <div class="row ai-auto" data-panel-control="true">
+            <label class="row-main" for="aiConsent">
+              <span class="row-label">Fix unlabelled buttons automatically</span>
+              <input class="switch" type="checkbox" role="switch" id="aiConsent" aria-describedby="aiConsentDesc">
+            </label>
+            <p class="row-desc" id="aiConsentDesc">
+              On every site, name the buttons your screen reader would otherwise call
+              just &ldquo;button&rdquo;. The button&rsquo;s class names and nearby text
+              are sent to the helper service, never anything you type. Form
+              summaries are then written by Smart help too; without this they are
+              made on your computer from the form&rsquo;s labels.
+            </p>
+            <p class="row-desc" id="aiAutoStatus" aria-live="polite"></p>
+            <button type="button" class="btn btn-quiet btn-full" id="btnAiForget">
+              Forget the remembered answers
+            </button>
+          </div>
+
+          <p class="panel-note">
+            The page summary is on the Home screen, and <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd>
+            reads it out on any page.
+          </p>
+
+          <details class="disclosure">
+            <summary>What happens to my page?</summary>
+            <p>
+              When you press one of these buttons, AccessiFlow sends that picture
+              or that page text to its helper service, which writes the answer and
+              sends it back. The service keeps nothing.
+            </p>
+            <p>
+              AccessiFlow remembers each answer on your own computer for 30 days,
+              so a page you come back to is fixed instantly and nothing is sent
+              twice. &ldquo;Forget the remembered answers&rdquo; clears them.
+            </p>
+            <p>
+              Nothing is sent without a button press unless you turn on
+              &ldquo;Fix unlabelled buttons automatically&rdquo;. Even then,
+              AccessiFlow makes at most 40 automatic requests an hour, and never
+              sends anything you have typed into a form. Rewritten text is always
+              marked as rewritten, with the original one press away.
+            </p>
+          </details>
         </div>
-      </div>
-    </section>
+      </section>
+
+      <!-- Schema-driven sections are rendered here by popup.js. -->
+      <div id="sections"></div>
+
+      <!-- ── Page check ───────────────────────────────────────────── -->
+      <section class="section" id="section-audit">
+        <h2 class="section-heading">
+          <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-audit">
+            <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>
+            <span class="section-title">
+              <span class="section-label">Check this page</span>
+              <span class="section-desc">See how accessible the website itself is.</span>
+            </span>
+            <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+        </h2>
+        <div class="section-body" id="body-audit" hidden>
+          <button type="button" class="btn btn-primary btn-full" id="btnRunAudit">Check this page now</button>
+
+          <div id="auditScoreArea" class="score-area" hidden>
+            <div class="score-dial" id="auditScoreCircle">
+              <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false" class="score-ring">
+                <circle class="score-ring-track" cx="60" cy="60" r="52"/>
+                <circle class="score-ring-value" cx="60" cy="60" r="52" id="scoreRingValue"/>
+              </svg>
+              <p class="score-number"><span id="auditScoreValue">0</span><span class="score-max">/100</span></p>
+            </div>
+            <p class="score-caption" id="auditScoreCaption"></p>
+          </div>
+
+          <div id="auditResultsList" class="issue-list" role="status" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <!-- ── Your settings ────────────────────────────────────────── -->
+      <section class="section" id="section-data">
+        <h2 class="section-heading">
+          <button type="button" class="section-toggle" aria-expanded="false" aria-controls="body-data">
+            <svg class="icon section-icon" aria-hidden="true" focusable="false"><use href="#i-slider"/></svg>
+            <span class="section-title">
+              <span class="section-label">Your setup and settings</span>
+              <span class="section-desc">Change your setup, save it, or start again.</span>
+            </span>
+            <svg class="icon chevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+        </h2>
+        <div class="section-body" id="body-data" hidden>
+          <p class="panel-note">
+            Your setup applies on every website. A site can keep its own
+            changes on top, and forgetting them puts it back on your setup.
+          </p>
+          <div class="stack">
+            <button type="button" class="btn btn-quiet btn-full" id="btnRunSetup">Answer the setup questions again</button>
+            <button type="button" class="btn btn-quiet btn-full" id="btnExportSettings">Save my setup to a file</button>
+            <button type="button" class="btn btn-quiet btn-full" id="btnImportSettings">Load a setup from a file</button>
+            <input type="file" id="importFile" accept=".json" hidden>
+            <button type="button" class="btn btn-danger btn-full" id="btnResetSettings">Forget this site&rsquo;s own changes</button>
+          </div>
+        </div>
+      </section>
+    </div>
   </main>
 
   <!-- ── Footer ─────────────────────────────────────────────────────── -->
   <footer class="app-footer">
     <p id="liveStatus" class="live-status" role="status" aria-live="polite"></p>
-    <p class="shortcut-hint"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> turns AccessiFlow on and off</p>
+    <p class="shortcut-hint"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd> opens this panel. <kbd>Ctrl</kbd> stops reading.</p>
   </footer>
 
   <!-- ── Dialog ─────────────────────────────────────────────────────── -->
@@ -306,6 +357,9 @@
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle" aria-describedby="dialogBody" id="dialog">
       <h2 id="dialogTitle"></h2>
       <p id="dialogBody"></p>
+      <!-- A scrollable region for longer content, such as the shortcut list.
+           Focusable, so the keyboard can scroll it. -->
+      <div id="dialogExtra" class="dialog-extra" role="region" aria-label="Details" tabindex="0" hidden></div>
       <div class="dialog-actions">
         <button type="button" class="btn btn-quiet" id="dialogCancel">Cancel</button>
         <button type="button" class="btn btn-primary" id="dialogConfirm">Yes</button>
@@ -315,6 +369,9 @@
 
   <script src="modules/profiles.js"></script>
   <script src="popup-schema.js"></script>
+  <script src="modules/settings-store.js"></script>
+  <script src="modules/shortcuts.js"></script>
+  <script src="ui-voice.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

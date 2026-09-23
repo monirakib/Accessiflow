@@ -695,8 +695,15 @@ chrome.commands.onCommand.addListener((command, tab) => {
 
 // ── First run ─────────────────────────────────────────────────────────────
 
+// The setup page opens by itself and starts talking, so a blind user who has
+// just installed AccessiFlow hears where they are without having to find
+// anything first. Someone updating from 2.x, when every setting was kept per
+// site, is shown it once, since otherwise they would never learn that a setup
+// can now follow them to every website.
 chrome.runtime.onInstalled.addListener(details => {
   if (details.reason === 'install') {
     chrome.tabs.create({ url: 'welcome.html' });
+  } else if (details.reason === 'update' && /^2\./.test(details.previousVersion || '')) {
+    chrome.tabs.create({ url: 'welcome.html?from=2' });
   }
 });

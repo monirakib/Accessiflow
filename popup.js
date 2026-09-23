@@ -1,14 +1,28 @@
 // AccessiFlow popup
 //
-// Renders every control from popup-schema.js, so a setting's label, help text
-// and search terms are defined in exactly one place. Nothing here builds markup
-// from strings: each row is assembled with DOM calls, which keeps the ARIA
-// wiring identical for all 70-odd controls and keeps us inside the extension
-// content security policy.
+// Two screens. Home is what most people open the panel for: whether
+// AccessiFlow is on for this site, what their setup is, four big buttons
+// (read, stop, summarise, describe the pictures), and the few settings that
+// matter for the needs they chose. "All settings" holds everything else,
+// with search, exactly as before.
+//
+// Every control is rendered from popup-schema.js, so a setting's label, help
+// text and search terms are defined in exactly one place. Nothing here builds
+// markup from strings: each row is assembled with DOM calls, which keeps the
+// ARIA wiring identical for all the controls and keeps us inside the
+// extension content security policy.
+//
+// Where a change goes is decided by modules/settings-store.js: into the
+// setup, for every website, unless "Only this site" is chosen. The popup only
+// writes to storage; every open page follows the change by itself.
 'use strict';
 
 (function () {
   const SCHEMA = window.ACCESSIFLOW_SCHEMA;
+  const Store = window.AccessiFlowSettings;
+  const Voice = window.AccessiFlowUiVoice;
+  const PROFILES = window.ACCESSIFLOW_PROFILES || [];
+  const SHORTCUTS = window.ACCESSIFLOW_SHORTCUTS || [];
 
   const $ = sel => document.querySelector(sel);
   const el = (tag, className, text) => {
@@ -22,50 +36,51 @@
 
   let currentTabId = null;
   let currentHostname = '';
+  // The setup and this site's exceptions, as stored; and what they add up to
+  // here, which is what the controls show.
+  let state = { setup: null, site: null };
   let settings = {};
+  // Where the next change goes: 'everywhere' (the setup) or 'site'. Back to
+  // 'everywhere' every time the panel opens.
+  let scope = 'everywhere';
 
-  // Switches that apply to every website at once. They live in a storage key
-  // of their own, never in a site's settings, so a preset or "turn
-  // everything off" on one site cannot switch them off everywhere.
-  const GLOBAL_KEYS = { screenReader: 'accessiflowScreenReader' };
+  // Switches that apply to every website at once, in a storage key of their
+  // own, never in the setup, so no preset can switch them off by accident.
+  const GLOBAL_KEYS = { screenReader: Store.READER_KEY };
   const globals = {};
   let pageReachable = true;
 
   // Flattened views of the schema, built once at render time.
   const CONTROLS = new Map();   // id -> control definition
-  const SWITCHES = [];
-  const SLIDERS = [];
-  const SELECTS = [];
-
   SCHEMA.sections.forEach(section => {
-    section.controls.forEach(control => {
-      CONTROLS.set(control.id, control);
-      if (control.type === 'switch') SWITCHES.push(control.id);
-      else if (control.type === 'slider') SLIDERS.push(control.id);
-      else if (control.type === 'select') SELECTS.push(control.id);
-    });
+    section.controls.forEach(control => CONTROLS.set(control.id, control));
   });
 
-  const UI_PREFS_KEY = 'accessiflow_ui_prefs';
+  // Rows on the Home screen are copies of rows under All settings. Their ids
+  // carry this prefix so each id stays unique on the page.
+  const HOME_PREFIX = 'home-';
+  const HOME_LIMIT = 6;
 
-  // Which disability type the settings list is narrowed to, and what the last
-  // filter pass produced. 'all' means no narrowing.
-  const AUDIENCES = SCHEMA.audiences || [];
-  let currentAudience = 'all';
-  let filterState = { groupsShown: SCHEMA.sections.length, hiddenElsewhere: 0 };
+  const UI_PREFS_KEY = 'accessiflow_ui_prefs';
 
   // ── Announcements ───────────────────────────────────────────────────────
   // One polite live region for the whole popup. Several competing live regions
   // make a screen reader talk over itself, so everything funnels through here.
+  // With AccessiFlow's own screen reader on, it is also spoken aloud, since
+  // that reader does not run inside this panel.
 
   let announceTimer = null;
-  function announce(message) {
+  function announce(message, opts) {
     const region = $('#liveStatus');
-    if (!region) return;
-    // Re-setting identical text does not re-announce, so clear first.
-    region.textContent = '';
-    clearTimeout(announceTimer);
-    announceTimer = setTimeout(() => { region.textContent = message; }, 60);
+    if (region) {
+      // Re-setting identical text does not re-announce, so clear first.
+      region.textContent = '';
+      clearTimeout(announceTimer);
+      announceTimer = setTimeout(() => { region.textContent = message; }, 60);
+    }
+    // `silent` when the page is about to speak: the panel's voice and the
+    // page's share one speech engine, and would cut each other off.
+    if (!(opts && opts.silent)) Voice.say(message);
   }
 
   // ── Appearance of the popup itself ──────────────────────────────────────
@@ -96,8 +111,7 @@
     const checked = document.querySelector('input[name="uiTheme"]:checked');
     const prefs = {
       theme: checked ? checked.value : 'auto',
-      scale: parseInt($('#uiScale').value, 10) || 100,
-      audience: currentAudience
+      scale: parseInt($('#uiScale').value, 10) || 100
     };
     chrome.storage.local.set({ [UI_PREFS_KEY]: prefs });
     applyUiPrefs(prefs);
@@ -126,9 +140,8 @@
 
     document.querySelectorAll('input[name="uiTheme"]').forEach(radio => {
       radio.addEventListener('change', () => {
-        const prefs = saveUiPrefs();
+        saveUiPrefs();
         announce('Appearance set to ' + $('#themeStateLabel').textContent + '.');
-        void prefs;
       });
     });
 
@@ -139,9 +152,9 @@
     });
 
     // The stepper buttons beside the scale slider, authored in popup.html.
-    document.querySelectorAll('.step-btn[data-target="uiScale"]').forEach(button => {
-      button.addEventListener('click', () => {
-        const step = (parseInt(scale.step, 10) || 5) * (button.dataset.step === 'up' ? 1 : -1);
+    document.querySelectorAll('.step-btn[data-target="uiScale"]').forEach(stepper => {
+      stepper.addEventListener('click', () => {
+        const step = (parseInt(scale.step, 10) || 5) * (stepper.dataset.step === 'up' ? 1 : -1);
         const next = (parseInt(scale.value, 10) || 100) + step;
         scale.value = Math.min(parseInt(scale.max, 10), Math.max(parseInt(scale.min, 10), next));
         scale.dispatchEvent(new Event('input', { bubbles: true }));
@@ -162,11 +175,7 @@
     });
 
     chrome.storage.local.get(UI_PREFS_KEY, data => {
-      const prefs = data[UI_PREFS_KEY] || {};
-      applyUiPrefs(prefs);
-      // Silently: reopening the popup is not the moment to be told what you
-      // already chose last time.
-      setAudience(prefs.audience || 'all', false);
+      applyUiPrefs(data[UI_PREFS_KEY] || {});
     });
   }
 
@@ -204,27 +213,38 @@
     return words.every(word => haystack.includes(' ' + word));
   }
 
+  /**
+   * The WCAG criterion a setting helps meet. Shown, but hidden from screen
+   * readers: it is noise to someone who just wants bigger text.
+   */
+  function wcagTag(control) {
+    const tag = el('span', 'row-wcag', 'WCAG ' + control.wcag);
+    tag.setAttribute('aria-hidden', 'true');
+    return tag;
+  }
+
   /** Switch row: label + description + a real checkbox with role="switch". */
-  function renderSwitch(control) {
+  function renderSwitch(control, prefix) {
     const row = el('div', 'row');
-    const descId = 'desc-' + control.id;
+    const id = prefix + control.id;
+    const descId = 'desc-' + id;
 
     // The whole top line is the label, so the entire width is a hit target,
     // a 44px-tall strip instead of a 30px toggle.
     const main = el('label', 'row-main');
-    main.setAttribute('for', control.id);
+    main.setAttribute('for', id);
     main.appendChild(el('span', 'row-label', control.label));
 
     const input = el('input', 'switch');
     input.type = 'checkbox';
     input.setAttribute('role', 'switch');
-    input.id = control.id;
+    input.id = id;
     input.setAttribute('aria-describedby', descId);
     main.appendChild(input);
 
     const desc = el('p', 'row-desc', control.desc);
     desc.id = descId;
-    if (control.wcag) desc.appendChild(el('span', 'row-wcag', 'WCAG ' + control.wcag));
+    if (control.wcag) desc.appendChild(wcagTag(control));
 
     row.append(main, desc);
 
@@ -238,36 +258,31 @@
     }
 
     input.addEventListener('change', () => {
-      settings[control.id] = input.checked;
+      setValue(control.id, input.checked);
       if (GLOBAL_KEYS[control.id]) {
-        globals[control.id] = input.checked;
-        try { chrome.storage.local.set({ [GLOBAL_KEYS[control.id]]: input.checked }); } catch (e) { /* ok */ }
         announce(control.label + ' ' + (input.checked ? 'on, for every website' : 'off') + '.');
-        refreshDependants();
-        return;
+      } else {
+        announce(control.label + ' ' + (input.checked ? 'on' : 'off') + whereSaid() + '.');
       }
-      clearProfileSelection();
-      commit();
-      announce(control.label + ' ' + (input.checked ? 'on' : 'off') + '.');
-      refreshDependants();
     });
 
     return row;
   }
 
   /** Slider row: stepper buttons either side, because dragging is not universal. */
-  function renderSlider(control) {
+  function renderSlider(control, prefix) {
     const row = el('div', 'row control-row--slider');
-    const descId = 'desc-' + control.id;
+    const id = prefix + control.id;
+    const descId = 'desc-' + id;
 
     const label = el('label', null, control.label);
-    label.setAttribute('for', control.id);
+    label.setAttribute('for', id);
 
     const line = el('div', 'slider-line');
 
     const input = el('input');
     input.type = 'range';
-    input.id = control.id;
+    input.id = id;
     input.min = control.min;
     input.max = control.max;
     input.step = control.step;
@@ -275,8 +290,8 @@
     input.setAttribute('aria-describedby', descId);
 
     const out = el('output', null, control.default + control.suffix);
-    out.id = 'out-' + control.id;
-    out.setAttribute('for', control.id);
+    out.id = 'out-' + id;
+    out.setAttribute('for', id);
 
     const minus = stepButton('−', 'Less ' + control.label.toLowerCase(), input, -1, out, control);
     const plus = stepButton('+', 'More ' + control.label.toLowerCase(), input, 1, out, control);
@@ -285,23 +300,20 @@
 
     const desc = el('p', 'row-desc', control.desc);
     desc.id = descId;
-    if (control.wcag) desc.appendChild(el('span', 'row-wcag', 'WCAG ' + control.wcag));
+    if (control.wcag) desc.appendChild(wcagTag(control));
 
     row.append(label, line, desc);
 
-    const onInput = () => {
+    input.addEventListener('input', () => {
       const value = roundStep(parseFloat(input.value), control.step);
       out.textContent = value + control.suffix;
-      settings[control.id] = value;
       syncStepButtons(input, minus, plus);
-      clearProfileSelection();
-      commit();
-    };
-    input.addEventListener('input', onInput);
+      setValue(control.id, value);
+    });
     // A keyboard or stepper change is worth announcing; a drag is not, or the
     // screen reader never stops talking.
     input.addEventListener('change', () => {
-      announce(control.label + ': ' + out.textContent + '.');
+      announce(control.label + ': ' + out.textContent + whereSaid() + '.');
     });
 
     return row;
@@ -359,15 +371,16 @@
     catch (e) { synth.onvoiceschanged = fill; }
   }
 
-  function renderSelect(control) {
+  function renderSelect(control, prefix) {
     const row = el('div', 'row control-row--select');
-    const descId = 'desc-' + control.id;
+    const id = prefix + control.id;
+    const descId = 'desc-' + id;
 
     const label = el('label', null, control.label);
-    label.setAttribute('for', control.id);
+    label.setAttribute('for', id);
 
     const select = el('select');
-    select.id = control.id;
+    select.id = id;
     select.setAttribute('aria-describedby', descId);
     control.options.forEach(option => {
       const node = el('option', null, option.label);
@@ -384,17 +397,41 @@
 
     const desc = el('p', 'row-desc', control.desc);
     desc.id = descId;
-    if (control.wcag) desc.appendChild(el('span', 'row-wcag', 'WCAG ' + control.wcag));
+    if (control.wcag) desc.appendChild(wcagTag(control));
 
     row.append(label, select, desc);
 
     select.addEventListener('change', () => {
-      settings[control.id] = select.value;
-      clearProfileSelection();
-      commit();
-      announce(control.label + ': ' + select.options[select.selectedIndex].text + '.');
+      setValue(control.id, select.value);
+      announce(control.label + ': ' + select.options[select.selectedIndex].text + whereSaid() + '.');
     });
 
+    return row;
+  }
+
+  /**
+   * One setting's row, for All settings (prefix '') or Home. A row whose
+   * value is this site's own, not the setup's, says so and offers the way back.
+   */
+  function renderRow(control, prefix) {
+    const row = control.type === 'switch' ? renderSwitch(control, prefix)
+              : control.type === 'slider' ? renderSlider(control, prefix)
+              : renderSelect(control, prefix);
+    row.dataset.controlId = control.id;
+    if (control.dependsOn) row.dataset.dependsOn = control.dependsOn;
+    if (control.conflictsWith) row.dataset.conflictsWith = control.conflictsWith.join(' ');
+
+    if (!control.global) {
+      const mark = el('p', 'row-site');
+      mark.hidden = true;
+      mark.appendChild(el('span', null, 'Only on this site. '));
+      const back = el('button', 'link-btn', 'Use my setup');
+      back.type = 'button';
+      back.setAttribute('aria-label', 'Use my setup for ' + control.label);
+      back.addEventListener('click', () => forgetHere(control.id));
+      mark.appendChild(back);
+      row.appendChild(mark);
+    }
     return row;
   }
 
@@ -422,14 +459,9 @@
     body.hidden = true;
 
     section.controls.forEach(control => {
-      const row = control.type === 'switch' ? renderSwitch(control)
-                : control.type === 'slider' ? renderSlider(control)
-                : renderSelect(control);
-      row.dataset.controlId = control.id;
+      const row = renderRow(control, '');
       // The group name counts too, so "Hearing" or "বাংলা" lists that whole group.
       row.dataset.search = searchTerms(control) + searchText(section.label);
-      if (control.dependsOn) row.dataset.dependsOn = control.dependsOn;
-      if (control.conflictsWith) row.dataset.conflictsWith = control.conflictsWith.join(' ');
       body.appendChild(row);
     });
 
@@ -451,30 +483,7 @@
     return wrapper;
   }
 
-  function renderProfiles() {
-    const grid = $('#profileGrid');
-    SCHEMA.profiles.forEach(profile => {
-      const button = el('button', 'profile-btn');
-      button.type = 'button';
-      button.dataset.profile = profile.id;
-      button.setAttribute('aria-pressed', 'false');
-      button.append(
-        iconSvg(profile.icon, 'profile-icon'),
-        el('span', 'profile-label', profile.label),
-        el('span', 'profile-desc', profile.desc)
-      );
-      // The shortcut is part of the button's name on purpose: it is how
-      // someone who cannot see this panel learns the bundle exists at all.
-      if (profile.key) {
-        button.appendChild(el('span', 'profile-key', 'Alt+Shift+' + profile.key));
-      }
-      button.addEventListener('click', () => toggleProfile(profile, button));
-      grid.appendChild(button);
-    });
-  }
-
   function renderAll() {
-    renderProfiles();
     const host = $('#sections');
     SCHEMA.sections.forEach(section => host.appendChild(renderSection(section)));
 
@@ -495,6 +504,127 @@
     if (section) section.classList.toggle('section--open', open);
   }
 
+  // ── Home ────────────────────────────────────────────────────────────────
+
+  function needsOf(setup) {
+    return (setup && setup.needs) || [];
+  }
+
+  /** The settings for the chosen needs, as rows on the Home screen. */
+  function renderHome() {
+    const host = $('#homeControls');
+    host.textContent = '';
+    Store.homeControls(needsOf(state.setup), HOME_LIMIT)
+      .filter(id => CONTROLS.has(id))
+      .forEach(id => host.appendChild(renderRow(CONTROLS.get(id), HOME_PREFIX)));
+  }
+
+  /** "Low vision · Screen reader"; spoken, with commas and a full stop. */
+  function setupSentence(spoken) {
+    const needs = needsOf(state.setup);
+    if (!needs.length) return 'Not set up yet.';
+    const labels = needs.map(id => {
+      const profile = PROFILES.find(p => p.id === id);
+      return profile ? profile.label : id;
+    });
+    return spoken ? labels.join(', ') + '.' : labels.join(' · ');
+  }
+
+  function paintHome() {
+    const paused = Boolean(state.site && state.site._off);
+    $('#siteOn').checked = !paused;
+    $('#pausedNote').hidden = !paused;
+    $('#setupNeeds').textContent = setupSentence();
+    const hasSetup = needsOf(state.setup).length > 0;
+    const change = $('#btnChangeSetup');
+    change.textContent = hasSetup ? 'Change' : 'Set up';
+    change.setAttribute('aria-label', hasSetup ? 'Change my setup' : 'Set up AccessiFlow');
+  }
+
+  function openSetup() {
+    flush();
+    chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html?again=1') });
+    window.close();
+  }
+
+  function setHomeStatus(message, tone, opts) {
+    const status = $('#homeStatus');
+    status.textContent = message;
+    if (tone) status.dataset.tone = tone;
+    else delete status.dataset.tone;
+    announce(message, opts);
+  }
+
+  function initHome() {
+    $('#siteOn').addEventListener('change', () => {
+      flush();
+      const on = $('#siteOn').checked;
+      state = Store.setPaused(state, !on);
+      settings = currentSettings();
+      Store.save(currentHostname, state);
+      paintFromSettings();
+      announce(on
+        ? 'AccessiFlow is on for ' + currentHostname + ' again.'
+        : 'AccessiFlow is off for ' + currentHostname + '. The page is back to how the site made it.');
+    });
+
+    $('#btnChangeSetup').addEventListener('click', openSetup);
+
+    // The page does the talking for these three, so the panel stays silent
+    // rather than cut its own words off.
+    $('#btnHomeRead').addEventListener('click', () => {
+      sendAction('ttsReadPage');
+      setHomeStatus('Reading the page aloud. Stop reading, or Ctrl on the page, stops it.', null, { silent: true });
+    });
+    $('#btnHomeStop').addEventListener('click', () => {
+      sendAction('ttsStop');
+      setHomeStatus('Stopped reading.');
+    });
+    $('#btnHomeSummary').addEventListener('click', () => {
+      const button = $('#btnHomeSummary');
+      button.disabled = true;
+      setHomeStatus('Summarising this page…', null, { silent: true });
+      sendAction('summarizeAloud', response => {
+        button.disabled = false;
+        if (!response) {
+          setHomeStatus('This page cannot be summarised.', 'error');
+        } else if (response.kind === 'bullets') {
+          setHomeStatus('The key points are being read out, and are at the top of the page.', 'success', { silent: true });
+        } else {
+          setHomeStatus('Smart help was not available, so an outline of the page is being read out instead.', null, { silent: true });
+        }
+      });
+    });
+    $('#btnHomePictures').addEventListener('click', () => {
+      const button = $('#btnHomePictures');
+      button.disabled = true;
+      setHomeStatus('Looking at the pictures on this page…');
+      sendAction('aiDescribeImages', response => {
+        button.disabled = false;
+        setHomeStatus(describeResult(response), response && response.success ? 'success' : 'error');
+        refreshAiCounts();
+      });
+    });
+
+    $('#btnAllSettings').addEventListener('click', () => showView('all'));
+    $('#btnBackHome').addEventListener('click', () => showView('home'));
+  }
+
+  function showView(name) {
+    flush();
+    $('#homeView').hidden = name !== 'home';
+    $('#allView').hidden = name !== 'all';
+    $('main').scrollTop = 0;
+    if (name === 'all') {
+      $('#allTitle').focus();
+      announce('All settings. Search, or open a group.');
+    } else {
+      // Rows on Home may have changed under All settings.
+      paintFromSettings();
+      $('#btnAllSettings').focus();
+    }
+  }
+
   // ── Dependent controls ──────────────────────────────────────────────────
   // A magnifier strength slider means nothing with the magnifier off. Those
   // rows are dimmed and marked aria-disabled rather than hidden, so the
@@ -508,7 +638,7 @@
       const blockers = row.dataset.conflictsWith.split(' ').filter(id => settings[id]);
       const blocked = blockers.length > 0;
       row.classList.toggle('row--inactive', blocked);
-      row.querySelectorAll('input, select, button').forEach(node => { node.disabled = blocked; });
+      row.querySelectorAll('input, select, .step-btn').forEach(node => { node.disabled = blocked; });
       const hint = row.querySelector('.row-conflict');
       if (hint) {
         hint.hidden = !blocked;
@@ -522,78 +652,120 @@
     document.querySelectorAll('[data-depends-on]').forEach(row => {
       const active = Boolean(settings[row.dataset.dependsOn]);
       row.classList.toggle('row--inactive', !active);
-      row.querySelectorAll('input, select, button').forEach(node => {
+      row.querySelectorAll('input, select, .step-btn').forEach(node => {
         node.disabled = !active;
       });
       if (active) {
-        const control = CONTROLS.get(row.dataset.controlId);
         const input = row.querySelector('input[type="range"]');
-        const minus = row.querySelector('.step-btn');
-        const plus = row.querySelectorAll('.step-btn')[1];
-        if (input && minus && plus) syncStepButtons(input, minus, plus);
-        void control;
+        const steps = row.querySelectorAll('.step-btn');
+        if (input && steps.length === 2) syncStepButtons(input, steps[0], steps[1]);
       }
     });
   }
 
   // ── Settings state ──────────────────────────────────────────────────────
 
-  function defaults() {
-    const out = {};
-    SWITCHES.forEach(id => { out[id] = Boolean(CONTROLS.get(id).defaultOn); });
-    SLIDERS.forEach(id => { out[id] = CONTROLS.get(id).default; });
-    SELECTS.forEach(id => { out[id] = CONTROLS.get(id).default; });
-    return out;
+  function currentSettings() {
+    return Store.resolve(state.setup, state.site).settings;
+  }
+
+  /** Both copies of a control, on Home and under All settings. */
+  function paintControl(id) {
+    const control = CONTROLS.get(id);
+    if (!control) return;
+    ['', HOME_PREFIX].forEach(prefix => {
+      const input = document.getElementById(prefix + id);
+      if (!input) return;
+      if (control.type === 'switch') {
+        input.checked = Boolean(settings[id]);
+      } else if (control.type === 'slider') {
+        const value = settings[id] !== undefined ? settings[id] : control.default;
+        input.value = value;
+        const out = document.getElementById('out-' + prefix + id);
+        if (out) out.textContent = roundStep(parseFloat(value), control.step) + control.suffix;
+        const steps = input.parentElement.querySelectorAll('.step-btn');
+        if (steps.length === 2) syncStepButtons(input, steps[0], steps[1]);
+      } else {
+        const wanted = settings[id] != null ? settings[id] : control.default;
+        if (Array.from(input.options).some(o => o.value === wanted)) input.value = wanted;
+      }
+    });
+  }
+
+  /** Marks the rows whose value is this site's own. */
+  function paintSiteMarks() {
+    document.querySelectorAll('.row[data-control-id]').forEach(row => {
+      const mark = row.querySelector('.row-site');
+      if (mark) mark.hidden = !Store.isException(state.site, row.dataset.controlId);
+    });
   }
 
   function paintFromSettings() {
     Object.keys(GLOBAL_KEYS).forEach(id => { settings[id] = Boolean(globals[id]); });
-    SWITCHES.forEach(id => {
-      const input = document.getElementById(id);
-      if (input) input.checked = Boolean(settings[id]);
-    });
-
-    SLIDERS.forEach(id => {
-      const control = CONTROLS.get(id);
-      const input = document.getElementById(id);
-      const out = document.getElementById('out-' + id);
-      if (!input) return;
-      const value = settings[id] !== undefined ? settings[id] : control.default;
-      input.value = value;
-      if (out) out.textContent = roundStep(parseFloat(value), control.step) + control.suffix;
-      const steps = input.parentElement.querySelectorAll('.step-btn');
-      if (steps.length === 2) syncStepButtons(input, steps[0], steps[1]);
-    });
-
-    SELECTS.forEach(id => {
-      const select = document.getElementById(id);
-      if (select) select.value = settings[id] || CONTROLS.get(id).default;
-    });
-
+    CONTROLS.forEach((control, id) => paintControl(id));
     refreshDependants();
-    updateAudienceHint();
+    paintSiteMarks();
+    paintHome();
+  }
+
+  /** How an announcement says where the change went. */
+  function whereSaid() {
+    return scope === 'site' ? ', on this site only' : '';
   }
 
   /**
-   * Saves to storage and pushes to the page. Storage first: on a page we cannot
-   * reach, the choice must still survive for next time.
-   *
-   * Debounced, because dragging a slider fires `input` on every pixel and the
-   * content script rebuilds all of its modules on each applySettings. Without
+   * One setting changed, from either copy of its control. Saved into the
+   * setup or as this site's exception, depending on the scope chosen.
+   */
+  let pending = {};
+  function setValue(id, value) {
+    settings[id] = value;
+    if (GLOBAL_KEYS[id]) {
+      globals[id] = value;
+      try { chrome.storage.local.set({ [GLOBAL_KEYS[id]]: value }); } catch (e) { /* ok */ }
+      if (id === 'screenReader') {
+        if (value) Voice.enable({ rate: settings.ttsRate || 1 });
+        else Voice.disable();
+      }
+    } else {
+      pending[id] = value;
+      commit();
+      if (id === 'ttsRate') Voice.setRate(value);
+    }
+    paintControl(id);
+    refreshDependants();
+  }
+
+  /**
+   * Debounced, because dragging a slider fires `input` on every pixel and
+   * each open page rebuilds its modules when the setup changes. Without
    * this, the page stutters exactly for the users least able to tolerate it.
    */
   let commitTimer = null;
   function commit() {
     clearTimeout(commitTimer);
-    commitTimer = setTimeout(() => {
-      if (currentHostname) {
-        chrome.storage.local.set({ ['settings_' + currentHostname]: settings });
-      }
-      if (!currentTabId) return;
-      chrome.tabs.sendMessage(currentTabId, { action: 'applySettings', data: settings }, () => {
-        if (chrome.runtime.lastError) markPageUnreachable();
-      });
-    }, 80);
+    commitTimer = setTimeout(flush, 80);
+  }
+
+  function flush() {
+    clearTimeout(commitTimer);
+    commitTimer = null;
+    if (!Object.keys(pending).length) return;
+    state = Store.change(state, pending, scope);
+    pending = {};
+    Store.save(currentHostname, state);
+    paintSiteMarks();
+  }
+
+  /** "Use my setup" for one setting on this site. */
+  function forgetHere(id) {
+    flush();
+    state = Store.forget(state, id);
+    settings = currentSettings();
+    Store.save(currentHostname, state);
+    paintFromSettings();
+    const control = CONTROLS.get(id);
+    announce((control ? control.label : 'That setting') + ' now follows your setup on this site.');
   }
 
   function sendAction(action, callback) {
@@ -621,67 +793,26 @@
     announce('AccessiFlow cannot change this page.');
   }
 
-  // ── Profiles ────────────────────────────────────────────────────────────
+  // ── Scope: every site, or this one ──────────────────────────────────────
 
-  function toggleProfile(profile, button) {
-    const wasOn = button.getAttribute('aria-pressed') === 'true';
-
-    document.querySelectorAll('.profile-btn').forEach(other => {
-      other.setAttribute('aria-pressed', 'false');
-    });
-
-    settings = defaults();
-
-    if (wasOn) {
-      announce(profile.label + ' turned off. Everything is back to normal.');
-    } else {
-      button.setAttribute('aria-pressed', 'true');
-      Object.assign(settings, profile.settings);
-      announce(profile.label + ' turned on.');
-    }
-
-    paintFromSettings();
-    commit();
-  }
-
-  /** A hand-picked change means the active preset no longer describes reality. */
-  function clearProfileSelection() {
-    document.querySelectorAll('.profile-btn[aria-pressed="true"]').forEach(button => {
-      button.setAttribute('aria-pressed', 'false');
+  function initScope() {
+    document.querySelectorAll('input[name="scope"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        if (!radio.checked) return;
+        flush();
+        scope = radio.value;
+        announce(scope === 'site'
+          ? 'Changes now apply to ' + currentHostname + ' only.'
+          : 'Changes now apply to every site.');
+      });
     });
   }
 
-  function initTurnOff() {
-    $('#btnTurnOff').addEventListener('click', async () => {
-      const yes = await confirmDialog(
-        'Turn everything off?',
-        'Every adjustment for this website will be switched off. You can turn them back on whenever you like.',
-        'Turn everything off'
-      );
-      if (!yes) return;
-      settings = defaults();
-      clearProfileSelection();
-      paintFromSettings();
-      commit();
-      announce('Everything is off. The page is back to normal.');
-    });
-  }
-
-  // ── Filtering: disability type, then search ───────────────────────
-  //
-  // Both narrow the same list, so they run in one pass. The chosen disability
-  // type decides which sections exist for you at all; the search box looks
-  // inside whatever is left. Nothing is deleted and nothing is switched off:
-  // "Everything" brings every group straight back.
-
-  function audienceById(id) {
-    return AUDIENCES.find(audience => audience.id === id) || null;
-  }
+  // ── Search ──────────────────────────────────────────────────────────────
 
   /**
    * Search text for each fixed panel: what it visibly says, plus the schema's
-   * extra keywords. Built once, after rendering, so it includes the profile
-   * buttons that popup.js adds to Quick setup.
+   * extra keywords.
    */
   const PANEL_SEARCH = {};
   function buildPanelSearch() {
@@ -696,48 +827,13 @@
     });
   }
 
-  /** Section ids for a disability type: the ones it needs, then the rest. */
-  function audiencePlan(id) {
-    const audience = audienceById(id);
-    if (!audience) return null;
-    const all = SCHEMA.sections.map(section => section.id);
-    const wanted = audience.sections.filter(sectionId => all.includes(sectionId));
-    return {
-      wanted,
-      order: wanted.concat(all.filter(sectionId => !wanted.includes(sectionId)))
-    };
-  }
-
-  /** Moves the chosen type's sections to the top, in the order it lists them. */
-  function sortSections() {
-    const host = $('#sections');
-    if (!host) return;
-    const plan = audiencePlan(currentAudience);
-    const order = plan ? plan.order : SCHEMA.sections.map(section => section.id);
-    order.forEach(sectionId => {
-      const section = document.getElementById('section-' + sectionId);
-      if (section) host.appendChild(section);
-    });
-  }
-
-  /**
-   * One pass over every section and row.
-   *
-   * `reset` recollapses the accordion and opens the top section of a chosen
-   * disability type, so its settings are on screen without a further click.
-   */
-  function applyFilters(options) {
-    const opts = options || {};
+  /** One pass over every section and row under All settings. */
+  function applyFilters() {
     const input = $('#settingSearch');
     const query = input ? input.value.trim() : '';
     const words = searchWords(query);
-    const plan = audiencePlan(currentAudience);
-    const scope = plan ? new Set(plan.wanted) : null;
 
     let matches = 0;
-    let hiddenElsewhere = 0;
-    let groupsShown = 0;
-    let opened = false;
 
     document.querySelectorAll('#sections .section').forEach(section => {
       let hits = 0;
@@ -755,37 +851,18 @@
         if (hit && words.length && !button.hidden) hits++;
       });
 
-      // Outside the chosen type. Counted but not shown, so a search can say
-      // where the rest of its matches went rather than pretend they are not
-      // there.
-      if (scope && !scope.has(section.dataset.sectionId)) {
-        section.hidden = true;
-        if (words.length) hiddenElsewhere += hits;
-        return;
-      }
-
       section.hidden = words.length > 0 && hits === 0;
-      if (!section.hidden) {
-        groupsShown++;
-        matches += hits;
-      }
+      if (!section.hidden) matches += hits;
 
       const toggle = section.querySelector('.section-toggle');
       if (!toggle) return;
-      if (words.length) {
-        setSectionOpen(toggle, hits > 0);
-      } else if (opts.reset) {
-        const open = Boolean(scope) && !section.hidden && !opened;
-        setSectionOpen(toggle, open);
-        if (open) opened = true;
-      }
+      if (words.length) setSectionOpen(toggle, hits > 0);
+      else setSectionOpen(toggle, false);
     });
 
     // The fixed panels (Smart help, Check this page, ...) are searched by
     // their own text plus the schema's keywords, so typing a button's name
-    // finds its button. A match opens the panel; a miss hides it but leaves
-    // its open state alone, so Quick setup is still open once search clears.
-    // A disability type never hides them: none is specific to one need.
+    // finds its button. A match opens the panel.
     const panelsFound = [];
     Object.keys(PANEL_SEARCH).forEach(id => {
       const section = document.getElementById(id);
@@ -799,110 +876,8 @@
       panelsFound.push(label ? label.textContent : id);
     });
 
-    filterState = { groupsShown, hiddenElsewhere };
-    updateAudienceHint();
-    return { matches, hiddenElsewhere, groupsShown, panelsFound, query };
+    return { matches, panelsFound, query };
   }
-
-  /**
-   * Settings the user has changed that the chosen type is hiding. A setting
-   * that is on but off screen is the one real risk of filtering, so the hint
-   * says so plainly instead of leaving someone to hunt for it.
-   */
-  function hiddenActiveCount() {
-    const plan = audiencePlan(currentAudience);
-    if (!plan) return 0;
-    const base = defaults();
-    let count = 0;
-    SCHEMA.sections.forEach(section => {
-      if (plan.wanted.includes(section.id)) return;
-      section.controls.forEach(control => {
-        const value = settings[control.id];
-        if (value !== undefined && value !== base[control.id]) count++;
-      });
-    });
-    return count;
-  }
-
-  function updateAudienceHint() {
-    const hint = $('#audienceHint');
-    const reset = $('#btnClearAudience');
-    const audience = audienceById(currentAudience);
-
-    if (reset) reset.hidden = !audience;
-    if (!hint) return;
-
-    // Off screen when nothing is filtered: it would only repeat the select,
-    // and a 600px popup has no height to spare. aria-describedby still reads
-    // hidden text, so screen readers keep this as the select's description.
-    hint.hidden = !audience;
-    if (!audience) {
-      hint.textContent = 'Choose a need to show only the settings that help with it.';
-      return;
-    }
-
-    let text = 'Showing ' + filterState.groupsShown + ' of ' +
-      SCHEMA.sections.length + ' setting groups.';
-
-    if (filterState.hiddenElsewhere > 0) {
-      text += ' ' + filterState.hiddenElsewhere + ' more ' +
-        (filterState.hiddenElsewhere === 1 ? 'setting matches' : 'settings match') +
-        ' in the groups this hides.';
-    }
-
-    const active = hiddenActiveCount();
-    if (active > 0) {
-      text += ' ' + active + (active === 1 ? ' setting is' : ' settings are') +
-        ' still on in a hidden group.';
-    }
-
-    hint.textContent = text;
-  }
-
-  function setAudience(id, spoken) {
-    currentAudience = audienceById(id) ? id : 'all';
-
-    const select = $('#audienceFilter');
-    if (select && select.value !== currentAudience) select.value = currentAudience;
-
-    sortSections();
-    const result = applyFilters({ reset: true });
-    saveUiPrefs();
-    if (!spoken) return;
-
-    const audience = audienceById(currentAudience);
-    announce(audience
-      ? 'Showing ' + result.groupsShown + ' setting groups for ' + audience.label +
-        '. The first one is open.'
-      : 'Showing every setting group.');
-  }
-
-  function initAudience() {
-    const select = $('#audienceFilter');
-    if (!select) return;
-
-    const everything = el('option', null, 'Everything');
-    everything.value = 'all';
-    select.appendChild(everything);
-
-    AUDIENCES.forEach(audience => {
-      const option = el('option', null, audience.label);
-      option.value = audience.id;
-      select.appendChild(option);
-    });
-
-    select.addEventListener('change', () => setAudience(select.value, true));
-
-    const reset = $('#btnClearAudience');
-    if (reset) {
-      reset.addEventListener('click', () => {
-        setAudience('all', true);
-        select.focus();
-      });
-    }
-  }
-
-  // ── Search ──────────────────────────────────────────────────
 
   function initSearch() {
     const input = $('#settingSearch');
@@ -913,7 +888,7 @@
       clear.hidden = !query;
 
       if (!query) {
-        applyFilters({ reset: true });
+        applyFilters();
         announce('Search cleared.');
         return;
       }
@@ -924,18 +899,9 @@
         found.push(result.matches + (result.matches === 1 ? ' setting' : ' settings'));
       }
       if (result.panelsFound.length) found.push(result.panelsFound.join(' and '));
-      let message = found.length
+      announce(found.length
         ? 'Found ' + found.join(', and ') + '.'
-        : 'Nothing matches ' + query + '.';
-
-      if (result.hiddenElsewhere > 0) {
-        const audience = audienceById(currentAudience);
-        message += ' ' + result.hiddenElsewhere + ' more ' +
-          (result.hiddenElsewhere === 1 ? 'is' : 'are') + ' outside ' +
-          (audience ? audience.label : 'the chosen need') + '.';
-      }
-
-      announce(message);
+        : 'Nothing matches ' + query + '.');
     };
 
     let debounce = null;
@@ -965,23 +931,30 @@
 
   let releaseDialog = null;
 
-  function confirmDialog(title, body, confirmLabel, cancelLabel) {
+  /** `extra`, if given, is a node shown under the body text, such as a table. */
+  function confirmDialog(title, body, confirmLabel, cancelLabel, extra) {
     const backdrop = $('#dialogBackdrop');
     const dialog = $('#dialog');
     const confirmBtn = $('#dialogConfirm');
     const cancelBtn = $('#dialogCancel');
+    const extraHost = $('#dialogExtra');
     const previouslyFocused = document.activeElement;
 
     $('#dialogTitle').textContent = title;
     $('#dialogBody').textContent = body;
     confirmBtn.textContent = confirmLabel || 'Yes';
     cancelBtn.textContent = cancelLabel || 'Cancel';
+    extraHost.textContent = '';
+    extraHost.hidden = !extra;
+    if (extra) extraHost.appendChild(extra);
     backdrop.hidden = false;
     confirmBtn.focus();
 
     return new Promise(resolve => {
       const finish = answer => {
         backdrop.hidden = true;
+        extraHost.hidden = true;
+        extraHost.textContent = '';
         if (releaseDialog) releaseDialog();
         releaseDialog = null;
         if (previouslyFocused && previouslyFocused.focus) previouslyFocused.focus();
@@ -991,8 +964,9 @@
       const onKeydown = e => {
         if (e.key === 'Escape') { e.stopPropagation(); finish(false); return; }
         if (e.key !== 'Tab') return;
-        // Keep Tab inside the dialog: with only two buttons, alternate them.
-        const focusables = [cancelBtn, confirmBtn];
+        // Keep Tab inside the dialog. The extra content, when there is any,
+        // is a scrollable region and takes a turn too.
+        const focusables = (extra ? [extraHost] : []).concat([cancelBtn, confirmBtn]);
         const index = focusables.indexOf(document.activeElement);
         const next = e.shiftKey ? index - 1 : index + 1;
         if (next < 0 || next >= focusables.length || index === -1) {
@@ -1098,13 +1072,13 @@
 
     chrome.runtime.onMessage.addListener(message => {
       if (!message || message.action !== 'captionProgress') return;
-      model.textContent = 'Downloading the caption engine\u2026 ' + message.percent + '%';
+      model.textContent = 'Downloading the caption engine… ' + message.percent + '%';
       if (message.percent % 20 === 0) announce(message.percent + ' per cent downloaded.');
     });
 
     model.addEventListener('click', () => {
       model.disabled = true;
-      model.textContent = 'Downloading the caption engine\u2026';
+      model.textContent = 'Downloading the caption engine…';
       announce('Downloading the caption engine. This happens once, and is about 41 megabytes. ' +
         'After that, captions work without sending any sound anywhere.');
       chrome.runtime.sendMessage({ action: 'downloadCaptionModel' }, reply => {
@@ -1159,7 +1133,7 @@
     const stop = $('#btnTTSStop');
     if (read) read.addEventListener('click', () => {
       sendAction('ttsReadPage');
-      announce('Reading the page aloud.');
+      announce('Reading the page aloud.', { silent: true });
     });
     if (stop) stop.addEventListener('click', () => {
       sendAction('ttsStop');
@@ -1176,8 +1150,8 @@
     else delete status.dataset.tone;
   }
 
-  const AI_BUTTONS = ['#btnAiAltText', '#btnAiSummary', '#btnAiLinks', '#btnAiControls',
-    '#btnAiSimplify', '#btnAiBullets', '#btnAiForm'];
+  const AI_BUTTONS = ['#btnAiAltText', '#btnAiLinks', '#btnAiControls',
+    '#btnAiSimplify', '#btnAiForm', '#btnHomePictures'];
 
   function setAiBusy(busy) {
     AI_BUTTONS.forEach(sel => { $(sel).disabled = busy; });
@@ -1185,6 +1159,22 @@
     $('#btnAiCancel').hidden = !busy;
     $('#aiProgress').hidden = !busy;
     if (!busy) $('#aiProgressFill').style.width = '0';
+  }
+
+  /** What "Describe the pictures" did, in one sentence. */
+  function describeResult(response) {
+    if (!response || !response.success) {
+      return (response && response.error) || 'That did not work. Please try again.';
+    }
+    const r = response.result;
+    if (r.error) {
+      return r.described > 0
+        ? 'Described ' + r.described + ' pictures, then stopped: ' + r.error
+        : r.error;
+    }
+    if (r.total === 0) return 'Every picture on this page already has a description.';
+    const skipped = r.skipped > 0 ? ' ' + r.skipped + ' could not be read by the browser.' : '';
+    return 'Described ' + r.described + ' of ' + r.total + ' pictures.' + skipped;
   }
 
   // Set once the proxy answers; the counts need both this and a known tab, and
@@ -1195,10 +1185,8 @@
     if (!aiAvailable || !currentTabId) return;
     sendAction('aiCounts', response => {
       if (!response || !response.success) return;
-      const images = $('#aiImageCount');
-      const links = $('#aiLinkCount');
-      images.textContent = response.images > 0 ? String(response.images) : '';
-      links.textContent = response.links > 0 ? String(response.links) : '';
+      $('#aiImageCount').textContent = response.images > 0 ? String(response.images) : '';
+      $('#aiLinkCount').textContent = response.links > 0 ? String(response.links) : '';
       $('#aiControlCount').textContent = response.controls > 0 ? String(response.controls) : '';
       $('#aiParagraphCount').textContent = response.paragraphs > 0 ? String(response.paragraphs) : '';
       $('#btnAiRestore').hidden = !(response.simplified > 0);
@@ -1209,12 +1197,14 @@
     });
   }
 
+  let refreshAutoStatus = () => {};
+
   function initAI() {
     chrome.runtime.onMessage.addListener(message => {
       if (message && message.action === 'voiceProgress') {
         const button = $('#btnDownloadVoice');
         if (button) button.textContent = 'Downloading the natural voice… ' + message.percent + '%';
-        // Every tenth, so a screen reader is informed but not flooded.
+        // Every fifth, so a screen reader is informed but not flooded.
         if (message.percent % 20 === 0) announce(message.percent + ' per cent downloaded.');
         return;
       }
@@ -1238,43 +1228,11 @@
     $('#btnAiAltText').addEventListener('click', () => {
       setAiBusy(true);
       setAiStatus('Looking at the pictures on this page…');
-
       sendAction('aiDescribeImages', response => {
         setAiBusy(false);
-        if (!response || !response.success) {
-          setAiStatus((response && response.error) || 'That did not work. Please try again.', 'error');
-          return;
-        }
-        const r = response.result;
-        if (r.error) {
-          setAiStatus(r.described > 0
-            ? 'Described ' + r.described + ' pictures, then stopped: ' + r.error
-            : r.error, 'error');
-        } else if (r.total === 0) {
-          setAiStatus('Every picture on this page already has a description.', 'success');
-        } else {
-          const skipped = r.skipped > 0
-            ? ' ' + r.skipped + ' could not be read by the browser.' : '';
-          setAiStatus('Described ' + r.described + ' of ' + r.total + ' pictures.' + skipped, 'success');
-        }
+        setAiStatus(describeResult(response), response && response.success && !response.result.error ? 'success' : 'error');
         announce($('#aiStatus').textContent);
         refreshAiCounts();
-      });
-    });
-
-    $('#btnAiSummary').addEventListener('click', () => {
-      setAiBusy(true);
-      setAiStatus('Reading the page…');
-
-      sendAction('aiSummarizePage', response => {
-        setAiBusy(false);
-        if (!response || !response.success) {
-          setAiStatus((response && response.error) || 'That did not work. Please try again.', 'error');
-          announce($('#aiStatus').textContent);
-          return;
-        }
-        setAiStatus('Summary added to the top of the page.', 'success');
-        announce('Summary added to the top of the page. ' + (response.summary || ''));
       });
     });
 
@@ -1350,14 +1308,6 @@
       })));
     });
 
-    $('#btnAiBullets').addEventListener('click', () => {
-      setAiBusy(true);
-      setAiStatus('Reading the page…');
-      sendAction('aiBulletSummary', response => finishAi(response, r => ({
-        text: 'Key points added to the top of the page. ' + (r.bullets || []).join(' ')
-      })));
-    });
-
     $('#btnAiForm').addEventListener('click', () => {
       setAiBusy(true);
       setAiStatus('Looking at the form…');
@@ -1368,7 +1318,7 @@
 
     // Automatic fixes: the one-time agreement, and what it has done so far.
     const consent = $('#aiConsent');
-    function refreshAutoStatus() {
+    refreshAutoStatus = () => {
       chrome.runtime.sendMessage({ action: 'aiAutoStatus' }, status => {
         if (chrome.runtime.lastError || !status || !status.success) return;
         consent.checked = status.consent;
@@ -1377,7 +1327,7 @@
           ? remembered + ', ' + status.remaining + ' of ' + status.perHour + ' automatic fixes left this hour.'
           : remembered + '.';
       });
-    }
+    };
     consent.addEventListener('change', () => {
       chrome.runtime.sendMessage({ action: 'aiSetConsent', value: consent.checked }, () => {
         void chrome.runtime.lastError;
@@ -1397,6 +1347,7 @@
     refreshAutoStatus();
 
     // If the proxy is not reachable, say so before the user presses anything.
+    // The Summarise button stays: without the helper it reads an outline.
     chrome.runtime.sendMessage({ action: 'aiHealth' }, health => {
       if (chrome.runtime.lastError || !health) return;
       if (health.available) {
@@ -1455,7 +1406,7 @@
     const verdict = score >= 85 ? 'This page is in good shape.'
       : score >= 70 ? 'This page is mostly fine, with a few rough edges.'
       : score >= 40 ? 'This page has real problems. AccessiFlow can fix many of them.'
-      : 'This page is hard to use. Turn on a profile above to make it workable.';
+      : 'This page is hard to use. Your setup, or Smart help, can make it workable.';
     $('#auditScoreCaption').textContent = verdict;
 
     const list = $('#auditResultsList');
@@ -1481,40 +1432,54 @@
 
   // ── Save, load, reset ───────────────────────────────────────────────────
 
+  /** Only settings AccessiFlow still has, and never the global switches. */
+  function cleanSettings(incoming) {
+    const out = {};
+    Object.keys(incoming || {}).forEach(key => {
+      const control = CONTROLS.get(key);
+      if (!control || control.global) return;
+      out[key] = incoming[key];
+    });
+    return out;
+  }
+
   function initDataActions() {
+    $('#btnRunSetup').addEventListener('click', openSetup);
+
     $('#btnResetSettings').addEventListener('click', async () => {
       const yes = await confirmDialog(
-        'Start again for ' + currentHostname + '?',
-        'Your saved choices for this website will be forgotten and the page will go back to normal. Other websites keep their settings.',
-        'Start again'
+        'Forget ' + currentHostname + '’s own changes?',
+        'This site goes back to your setup, and AccessiFlow is switched back on here if it was off. Your setup and every other site stay as they are.',
+        'Forget them'
       );
       if (!yes) return;
 
-      sendAction('resetSettings');
-      chrome.storage.local.remove('settings_' + currentHostname);
-      settings = defaults();
-      clearProfileSelection();
+      flush();
+      state = { setup: state.setup, site: null };
+      settings = currentSettings();
+      chrome.storage.local.remove(Store.siteKey(currentHostname));
       paintFromSettings();
-      commit();
-      announce('Settings for this website have been cleared.');
+      announce('This site now follows your setup.');
     });
 
     $('#btnExportSettings').addEventListener('click', () => {
+      flush();
       const payload = {
-        version: 2,
-        site: currentHostname,
+        version: 3,
         savedOn: new Date().toISOString().slice(0, 10),
-        settings: settings
+        setup: state.setup || { v: 1, needs: [], settings: {} },
+        site: currentHostname,
+        siteChanges: state.site || null
       };
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
       );
       const link = el('a');
       link.href = url;
-      link.download = 'accessiflow-' + currentHostname + '.json';
+      link.download = 'accessiflow-setup.json';
       link.click();
       URL.revokeObjectURL(url);
-      announce('Settings saved to a file.');
+      announce('Your setup was saved to a file.');
     });
 
     const file = $('#importFile');
@@ -1528,27 +1493,39 @@
       reader.onload = e => {
         try {
           const parsed = JSON.parse(e.target.result);
-          // Accept both the v2 wrapper and a bare v1 settings object, and keep
-          // only keys we still recognise, so an old file cannot inject junk.
-          const incoming = parsed.settings && typeof parsed.settings === 'object'
-            ? parsed.settings
-            : parsed;
-
-          const clean = defaults();
           let applied = 0;
-          Object.keys(incoming).forEach(key => {
-            if (!CONTROLS.has(key)) return;
-            clean[key] = incoming[key];
-            applied++;
-          });
+
+          if (parsed && parsed.version === 3 && parsed.setup) {
+            // A setup saved by this version.
+            const setup = Object.assign({ v: 1, needs: [] }, parsed.setup);
+            setup.needs = (setup.needs || []).filter(id => PROFILES.some(p => p.id === id));
+            setup.settings = cleanSettings(parsed.setup.settings);
+            applied = Object.keys(setup.settings).length + setup.needs.length;
+            state = { setup: setup, site: state.site };
+            if (parsed.site === currentHostname && parsed.siteChanges) {
+              state.site = Object.assign({ _v: Store.SITE_VERSION }, cleanSettings(parsed.siteChanges));
+            }
+          } else {
+            // A file from 2.x: one site's settings, taken as the setup, with
+            // only what differs from the defaults so nothing is pinned.
+            const incoming = cleanSettings(parsed && parsed.settings && typeof parsed.settings === 'object'
+              ? parsed.settings : parsed);
+            const base = Store.defaults();
+            const changed = {};
+            Object.keys(incoming).forEach(key => {
+              if (incoming[key] !== base[key]) changed[key] = incoming[key];
+            });
+            if (!Object.keys(incoming).length) throw new Error('nothing recognised');
+            applied = Object.keys(changed).length;
+            state = Store.change(state, changed, 'everywhere');
+          }
 
           if (!applied) throw new Error('nothing recognised');
-
-          settings = clean;
-          clearProfileSelection();
+          settings = currentSettings();
+          Store.save(currentHostname, state);
+          renderHome();
           paintFromSettings();
-          commit();
-          announce('Loaded ' + applied + ' settings from the file.');
+          announce('Loaded a setup with ' + applied + ' choices from the file.');
         } catch (_) {
           confirmDialog(
             'That file could not be read',
@@ -1586,23 +1563,44 @@
   }
 
   // ── Help ────────────────────────────────────────────────────────────────
+  // Every key AccessiFlow answers to, from modules/shortcuts.js, with a
+  // button that reads them all aloud.
+
+  function shortcutTable() {
+    const table = el('table', 'shortcut-table');
+    const head = el('thead');
+    const headRow = el('tr');
+    ['Keys', 'What happens'].forEach(text => {
+      const th = el('th', null, text);
+      th.scope = 'col';
+      headRow.appendChild(th);
+    });
+    head.appendChild(headRow);
+    const body = el('tbody');
+    SHORTCUTS.forEach(s => {
+      const tr = el('tr');
+      const keys = el('td');
+      keys.appendChild(el('kbd', null, s.keys));
+      tr.append(keys, el('td', null, s.what));
+      body.appendChild(tr);
+    });
+    table.append(head, body);
+    return table;
+  }
 
   function initHelp() {
-    $('#btnHelp').addEventListener('click', () => {
-      confirmDialog(
+    $('#btnHelp').addEventListener('click', async () => {
+      const table = shortcutTable();
+      $('#dialogExtra').setAttribute('aria-label', 'Keyboard shortcuts');
+      const read = await confirmDialog(
         'Keyboard shortcuts',
-        'Alt+Shift+1 to 7 turn on a profile without opening this panel: ' +
-        '1 low vision, 2 screen reader, 3 hand movement, 4 reading support, ' +
-        '5 focus, 6 seizure safety, 7 easier all round. ' +
-        'Alt+Shift+8 turns everything off and Alt+Shift+9 reads the list aloud. ' +
-        'Alt+Shift+Q opens AccessiFlow. Alt+Shift+A turns it on and off. ' +
-        'Alt+Shift+R reads the page aloud and Alt+Shift+S stops. ' +
-        'Alt+Shift+C switches high contrast, and Alt+Shift+M switches the reading mask. ' +
-        'Alt+Shift+E turns on keyboard-only mode, which shows its own list of keys on the page. ' +
-        'Alt+Shift+X opens voice control, for using pages by speaking. ' +
-        'Inside this panel, Tab moves between controls and Space switches them on or off.',
-        'Got it', 'Close'
+        'These keys work on any website. Inside this panel, Tab moves between controls and Space switches them on or off.',
+        'Read them aloud', 'Close', table
       );
+      if (read) {
+        Voice.preview('AccessiFlow keys. ' + SHORTCUTS.map(s => s.spoken).join('. ') + '.',
+          settings.ttsRate || 1);
+      }
     });
   }
 
@@ -1611,10 +1609,10 @@
   function init() {
     renderAll();
     buildPanelSearch();
-    initAudience();
     initAppearance();
+    initHome();
+    initScope();
     initSearch();
-    initTurnOff();
     initTTS();
     initVoiceDownload();
     initCaptions();
@@ -1624,8 +1622,12 @@
     initVoiceControl();
     initHelp();
 
-    settings = defaults();
+    settings = Store.defaults();
+    renderHome();
     paintFromSettings();
+
+    // Nothing may be lost when the panel closes straight after a change.
+    window.addEventListener('pagehide', flush);
 
     chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
       const tab = tabs && tabs[0];
@@ -1633,19 +1635,30 @@
 
       currentTabId = tab.id;
       try {
-        currentHostname = new URL(tab.url).hostname || 'this page';
+        currentHostname = new URL(tab.url).hostname || '';
       } catch (_) {
-        currentHostname = 'this page';
+        currentHostname = '';
       }
-      $('#currentHostname').textContent = currentHostname;
+      const shown = currentHostname || 'this page';
+      $('#currentHostname').textContent = shown;
+      document.querySelectorAll('.scope-host').forEach(node => { node.textContent = shown; });
 
-      const globalKeys = Object.keys(GLOBAL_KEYS).map(id => GLOBAL_KEYS[id]);
-      chrome.storage.local.get(['settings_' + currentHostname].concat(globalKeys), data => {
-        Object.keys(GLOBAL_KEYS).forEach(id => { globals[id] = Boolean(data[GLOBAL_KEYS[id]]); });
-        const saved = data['settings_' + currentHostname];
-        if (saved) settings = Object.assign(defaults(), saved);
+      Store.load(currentHostname).then(loaded => {
+        state = { setup: loaded.setup, site: loaded.site };
+        globals.screenReader = loaded.reader;
+        settings = currentSettings();
+        renderHome();
         paintFromSettings();
-        matchProfileToSettings();
+
+        // AccessiFlow's own screen reader does not run in this panel, so the
+        // panel speaks for itself while it is on.
+        if (globals.screenReader) {
+          Voice.enable({ rate: settings.ttsRate || 1 });
+          const paused = Boolean(state.site && state.site._off);
+          Voice.say('AccessiFlow panel. ' +
+            (paused ? 'Off for ' + shown + '. ' : 'On for ' + shown + '. ') +
+            'Your setup: ' + setupSentence(true) + ' Tab moves through the panel, and Escape closes it.');
+        }
       });
 
       // Confirms the content script is present, so the "cannot change this
@@ -1656,19 +1669,6 @@
 
       refreshAiCounts(); // no-op unless the health check already came back
       refreshCaptions();
-
-    });
-  }
-
-  /** If saved settings happen to be exactly one profile, show it as selected. */
-  function matchProfileToSettings() {
-    const base = defaults();
-    SCHEMA.profiles.forEach(profile => {
-      const expected = Object.assign({}, base, profile.settings);
-      const same = Object.keys(expected).every(key => settings[key] === expected[key]);
-      if (!same) return;
-      const button = document.querySelector('.profile-btn[data-profile="' + profile.id + '"]');
-      if (button) button.setAttribute('aria-pressed', 'true');
     });
   }
 

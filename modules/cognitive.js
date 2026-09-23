@@ -544,10 +544,9 @@ class CognitiveModule {
           document.body.appendChild(overlay);
           document.body.appendChild(reminder);
 
-          try {
-            const utter = new SpeechSynthesisUtterance('Time for a break. Rest your eyes and stretch.');
-            window.speechSynthesis.speak(utter);
-          } catch (e) { /* skip */ }
+          if (typeof window.AccessiFlowSpeak === 'function') {
+            window.AccessiFlowSpeak('Time for a break. Rest your eyes and stretch.');
+          }
         }, interval);
         this._breakTimerEl = true;
       } else {

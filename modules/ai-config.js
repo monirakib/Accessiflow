@@ -46,7 +46,11 @@
     // likely generated markup where AI names would be guesses anyway.
     MAX_CONTROLS_PER_PAGE: 15,
 
-    FORM_MIN_FIELDS: 4,
+    // A form's summary: from two questions up (a one-box search bar needs
+    // none), and how long to wait for Smart help before showing the one made
+    // on this computer instead.
+    FORM_MIN_FIELDS: 2,
+    FORM_AI_WAIT_MS: 2500,
     SIMPLIFY_MAX_PARAGRAPHS: 20,
     SIMPLIFY_BATCH_PARAGRAPHS: 4,
     SIMPLIFY_BATCH_CHARS: 2800,
