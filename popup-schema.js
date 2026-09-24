@@ -133,6 +133,18 @@ const SCHEMA = {
         { id: 'bigTargets', type: 'switch', label: 'Bigger buttons and links', desc: 'Grow everything clickable to at least 44 pixels.', wcag: '2.5.8', keywords: 'target size tap hit area small' },
         { id: 'largeCursor', type: 'switch', label: 'Large pointer', desc: 'Replace the mouse pointer with a much bigger one.', wcag: '2.5.8', keywords: 'cursor mouse big find' },
         { id: 'cursorSize', type: 'slider', label: 'Pointer size', desc: 'How big the large pointer is.', min: 1.5, max: 4, step: 0.5, default: 2, suffix: '×', wcag: '2.5.8', keywords: 'cursor scale', dependsOn: 'largeCursor' },
+        { id: 'holdDial', type: 'switch', label: 'Hold-click menu', desc: 'Hold the mouse button still for a moment to open a ring of actions: scroll, back, forward, switch tabs, reload and the on-screen keyboard. Move to one and let go. A quick click still clicks.', wcag: '2.5.6', keywords: 'radial pie wheel circle ring dial menu hold long press one hand one-handed mouse only scroll back forward tabs switch reload refresh keyboard shortcuts gesture' },
+        { id: 'holdDialDelay', type: 'slider', label: 'Hold for', desc: 'How long to hold the button before the menu opens.', min: 400, max: 2000, step: 100, default: 800, suffix: 'ms', wcag: '2.2.1', keywords: 'delay timing hold long press wait', dependsOn: 'holdDial' },
+        { id: 'holdDialButton', type: 'select', label: 'Button to hold', desc: 'The right button leaves dragging and selecting text completely alone. On a Mac the right button opens its menu at once, so keep the left.', default: 'left', wcag: '2.5.6', keywords: 'left right mouse button click', dependsOn: 'holdDial', options: [
+          { value: 'left', label: 'Left button' },
+          { value: 'right', label: 'Right button' }
+        ] },
+        { id: 'holdDialScrollSpeed', type: 'select', label: 'Scrolling speed', desc: 'How fast the page moves while you hold on Scroll up or Scroll down.', default: 'medium', wcag: '2.5.6', keywords: 'scroll speed fast slow', dependsOn: 'holdDial', options: [
+          { value: 'slow', label: 'Slow' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'fast', label: 'Fast' }
+        ] },
+        { id: 'onScreenKeyboard', type: 'switch', label: 'On-screen keyboard', desc: 'A keyboard on the page that you click one key at a time. Ctrl, Shift, Alt and Windows stay held until the next key, so shortcuts need one hand. Drag it anywhere and make it bigger or smaller.', wcag: '2.5.6', keywords: 'on screen virtual soft keyboard osk type typing mouse sticky keys combination shortcut ctrl shift alt one hand one-handed copy paste screenshot' },
         { id: 'focusLock', type: 'switch', label: 'Keep the keyboard inside pop-ups', desc: 'When a pop-up opens, move the keyboard into it and stop Tab wandering off behind it. Alt+Shift+U lets you out.', wcag: '2.4.3', keywords: 'modal dialog popup trap focus keyboard tab escapes behind stuck lightbox overlay cookie', defaultOn: true },
         { id: 'focusHalo', type: 'switch', label: 'Show me where the keyboard is', desc: 'Draw a bright ring around the current item, with a note of which key activates it. Works even where a normal outline gets cut off.', wcag: '2.4.11', keywords: 'keyboard outline ring where am i tab focus halo highlight lost which key shortcut' },
         { id: 'focusHaloPulse', type: 'switch', label: 'Make the ring pulse', desc: 'Fade the ring in and out so it catches the eye. Turns itself off when you have asked for less motion.', wcag: '2.4.11', keywords: 'pulse flash animate blink attention', defaultOn: true, dependsOn: 'focusHalo' },

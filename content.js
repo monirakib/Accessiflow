@@ -47,6 +47,34 @@
   try { aiModule = new AIModule(); } catch (e) { _warn('AIModule init failed: ' + e.message); }
   try { formsModule = new FormsModule(); } catch (e) { _warn('FormsModule init failed: ' + e.message); }
 
+  // The hold-click menu and the on-screen keyboard: shortcuts and scrolling
+  // for someone with one hand on the mouse. The ring's Keyboard choice and
+  // the keyboard's own Hide button both go through the setting, so the
+  // keyboard stays up, or stays away, on the next page too.
+  let pointerDial = null;
+  let screenKeyboard = null;
+  try {
+    screenKeyboard = new AccessiFlowScreenKeyboard({ onHide: () => setKeyboardShown(false) });
+  } catch (e) { _warn('On-screen keyboard init failed: ' + e.message); }
+  try {
+    pointerDial = new AccessiFlowPointerDial({ run: id => runDialChoice(id) });
+  } catch (e) { _warn('Hold-click menu init failed: ' + e.message); }
+
+  function setKeyboardShown(show) {
+    if (Boolean(currentSettings.onScreenKeyboard) === show) return;
+    toggleSetting('onScreenKeyboard');
+  }
+
+  function runDialChoice(id) {
+    if (id === 'keyboard') {
+      setKeyboardShown(!currentSettings.onScreenKeyboard);
+      return;
+    }
+    const A = window.AccessiFlowHandActions;
+    if (!A) return;
+    A.run(id).then(message => A.toast(message)).catch(err => A.toast(err.message));
+  }
+
   // ── TTS Engine ────────────────────────────────────────────
 
   // Languages the extension can speak by itself, with the engine bundled in
@@ -1036,6 +1064,25 @@
         } catch (e) { _warn('Motor apply error: ' + e.message); }
       }
 
+      // The hold-click menu and the on-screen keyboard. Not destroyed first:
+      // the keyboard would jump back to where it started, and let go of a
+      // Ctrl the user had already pressed, every time any setting changed.
+      if (pointerDial) {
+        try {
+          pointerDial.apply({
+            enabled: !!settings.holdDial,
+            delay: settings.holdDialDelay,
+            button: settings.holdDialButton,
+            speed: settings.holdDialScrollSpeed
+          });
+        } catch (e) { _warn('Hold-click menu apply error: ' + e.message); }
+      }
+      if (screenKeyboard) {
+        try {
+          screenKeyboard.apply({ enabled: !!settings.onScreenKeyboard });
+        } catch (e) { _warn('On-screen keyboard apply error: ' + e.message); }
+      }
+
       // Cognitive
       if (cognitiveModule) {
         try {
@@ -1268,6 +1315,9 @@
     } catch (e) { /* ok */ }
     try { if (aiModule) { aiModule.revertSimplified(); aiModule.revertControls(); } } catch (e) { /* ok */ }
     try { if (motorModule) motorModule.destroy(); } catch (e) { /* ok */ }
+    try { if (pointerDial) pointerDial.destroy(); } catch (e) { /* ok */ }
+    try { if (screenKeyboard) screenKeyboard.destroy(); } catch (e) { /* ok */ }
+    try { if (window.AccessiFlowHandActions) window.AccessiFlowHandActions.destroy(); } catch (e) { /* ok */ }
     try { if (cognitiveModule) cognitiveModule.destroy(); } catch (e) { /* ok */ }
     try { if (hearingModule) hearingModule.destroy(); } catch (e) { /* ok */ }
     try { if (seizureModule) seizureModule.destroy(); } catch (e) { /* ok */ }

@@ -102,6 +102,77 @@ the thing that would read the switch out was running. Now there is one
   its options. A switch is "on" or "off" rather than "checked", and focus
   landing on a control reads its description after its name, as NVDA does.
 
+## One hand on the mouse
+
+For people who can move a mouse but cannot easily reach a keyboard, hold two
+keys at once, or keep turning a scroll wheel. Both are in **Moving and
+clicking**; the Hand movement profile turns on the first.
+
+- **Hold-click menu.** Hold the left button still for 0.8 seconds (adjustable
+  from 0.4 to 2) and a ring of eight choices opens round the pointer: scroll
+  up and down, back and forward, the tab on either side, reload, and the
+  on-screen keyboard. Move towards one and let go. Holding on a scroll choice
+  keeps scrolling until let go, at the speed chosen; a quick flick scrolls one
+  screen. Eight and no more, because a crowded ring is a hard one to aim at.
+- **A held button already means things on the web**, so the ring only takes
+  the holds nobody else wanted. A quick click is let go before the delay and
+  reaches the page as usual. Dragging and selecting text move the pointer, and
+  moving more than 14 pixels before the delay cancels the ring; less than that
+  is a shaking hand, and still opens it. A list box, slider, video, canvas or
+  embedded frame never opens it, because holding still is their own gesture.
+  Once it is open, text selection is switched off and put back afterwards, and
+  the click that would have followed is swallowed, so letting go over a link
+  does not also follow the link. The page still sees the button come up, so
+  nothing it started on the press is left thinking the button is still down.
+- **Letting go without moving leaves the ring open**, for someone who cannot
+  keep a button held: then a click chooses and a click in the middle closes
+  it. The right button can be chosen instead of the left, which leaves
+  dragging alone entirely. On Windows the right-click menu opens when the
+  button is let go, so a hold can be told apart from a click; on a Mac it opens
+  as the button goes down, so there only the left button works.
+- **On-screen keyboard**, typed with the mouse. Ctrl, Alt, Shift and Windows
+  stay held after one click, so Ctrl+Shift+T is Ctrl, Shift, T. A shortcut then
+  waits for **Do it**, and the line above the keys says what it will do first
+  ("Ctrl + W: Close this tab"), because a slip there cannot be taken back.
+  Shift on its own is a phone keyboard's Shift. Keys never take focus, so the
+  box being typed in keeps its caret, and the page never hears a click on the
+  keyboard, so a site's suggestions and pop-ups do not close at every key. It
+  can be dragged, or picked up with one click and put down with another; A−
+  and A+ resize it, and its place is remembered. Messages and the shortcut
+  being built share one line of fixed height, and the Shortcuts list has a
+  fixed height too: a first version let both grow and shrink, which moved
+  every key under the user's hand as they typed.
+- **What a page can press, and what it cannot.** A key event made by a page is
+  marked as made by a page: Chrome ignores it for its own shortcuts, and
+  Windows never sees it at all. So [modules/hand-actions.js](modules/hand-actions.js)
+  does each shortcut itself: Ctrl+T through the tabs API in the service worker,
+  Ctrl+C through the browser's own editing, zoom through `chrome.tabs.setZoom`,
+  and Win+Shift+S, which nothing in a browser can press, as a screenshot of the
+  page copied to the clipboard. A combination it has no action for is sent to
+  the page as key events, which is what a site's own shortcuts listen for, and
+  AccessiFlow's Alt+Shift keys work that way too. Where the page handles a key
+  itself (a web app's own Ctrl+Z), the page gets it first, as it would from a
+  real keyboard. The ones nothing can reach (Alt+Tab, other Windows keys, the
+  address bar) say so instead of doing nothing.
+- **"What do you want to do?"** The keyboard's Shortcuts list has a box to ask
+  in plain words: "take a screenshot", "make it bigger", "close this tab", and
+  a few Bangla words. It is a word match on the computer, not the AI. The
+  question is asked on every kind of page, including ones about someone's
+  health or money, and the answer is always one of twenty-odd actions, which a
+  table lookup gets right without sending anything anywhere.
+- **Paste** tries the browser's own paste, then asks Chrome for the clipboard
+  (Chrome asks the user, once per site), then falls back to whatever was last
+  copied through AccessiFlow. The `clipboardRead` permission would make it
+  silent, but a new permission disables an installed extension until the user
+  accepts it, and for a blind user that means the reader going quiet after an
+  update.
+- Two older features now work with it. *Steady my clicks* compared
+  `e.target`, which inside a shadow root is only the host, so two different
+  keys pressed quickly looked like one key pressed twice and the second was
+  thrown away. *Click by hovering* used `document.elementFromPoint`, which
+  stops at a shadow root, so it could not press a key at all. Both now see
+  what is really under the pointer.
+
 ## Layout
 
 ```
@@ -120,6 +191,9 @@ modules/               Per-disability feature modules (vision, motor, ...)
   profiles.js          One bundle per need, with its setup wording and Home settings
   shortcuts.js         Every keyboard shortcut, written once
   key-echo.js          Says what is typed
+  hand-actions.js      What a shortcut does, done without the keys
+  pointer-dial.js      The hold-click menu
+  onscreen-keyboard.js The on-screen keyboard, with keys that stay held
   ai-config.js         Shared AI constants for worker and content scripts
   ai.js                Finds work, prepares it, applies results. No network.
 server/                Cloudflare Worker proxy. The HF token lives here.
@@ -437,7 +511,7 @@ the clinical term kept in the search keywords so both audiences find it.
 
 ```bash
 cd server && npm install && npm test          # the proxy
-cd test   && npm install && npm test          # 21 jsdom suites
+cd test   && npm install && npm test          # 23 jsdom suites
 cd test   && npm run test:browser             # real Chrome, extension installed
 ```
 
@@ -481,7 +555,13 @@ automated tests only stop the obvious regressions.
   `#main-accessiflow`; a check in `content.test.js` keeps it that way.
 - Key echo and the floating Stop button work in the page itself, not inside
   an embedded frame from another site (a card payment box, some login
-  forms), because the content script runs only in the top frame.
+  forms), because the content script runs only in the top frame. The
+  hold-click menu and the on-screen keyboard have the same limit: the ring
+  does not open over an embedded video, and the keyboard cannot type into a
+  payment box from another site.
+- A few sites give a held-still button a meaning of their own, such as a
+  press-and-wait before reordering a list. With the left button chosen, the
+  ring opens there too. Choosing the right button avoids it.
 - `blindMode` defaults on and runs repairs on every page. That is deliberate,
   but it has not been measured against a heavy single-page app yet.
 - The AI summary panel is injected at the top of `document.body`. On sites with

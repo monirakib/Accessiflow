@@ -429,10 +429,79 @@ async function startCaptions(tabId) {
   return relayToOffscreen({ action: 'startCapture', streamId: streamId, tabId: tabId });
 }
 
+// ── Tabs, zoom and screenshots, for the hold-click menu and on-screen keyboard ──
+//
+// A key event a page makes never reaches Chrome's own shortcuts, so Ctrl+T
+// pressed on the on-screen keyboard is done here instead. Only ever on the
+// tab that asked, or its window: a page cannot reach anybody else's tabs.
+
+// Chrome's own zoom steps, so Zoom in here matches Ctrl+Plus on a keyboard.
+const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
+
+async function handTab(op, tab) {
+  switch (op) {
+    case 'nextTab':
+    case 'prevTab': {
+      const tabs = (await chrome.tabs.query({ windowId: tab.windowId })).sort((a, b) => a.index - b.index);
+      if (tabs.length < 2) return { ok: false, message: 'This is the only tab in this window.' };
+      const at = tabs.findIndex(t => t.id === tab.id);
+      const next = tabs[(at + (op === 'nextTab' ? 1 : -1) + tabs.length) % tabs.length];
+      await chrome.tabs.update(next.id, { active: true });
+      return { ok: true };
+    }
+    case 'newTab':
+      await chrome.tabs.create({ windowId: tab.windowId });
+      return { ok: true };
+    case 'closeTab':
+      await chrome.tabs.remove(tab.id);
+      return { ok: true };
+    case 'newWindow':
+      await chrome.windows.create({});
+      return { ok: true };
+    case 'history':
+    case 'downloads':
+      await chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, url: 'chrome://' + op + '/' });
+      return { ok: true };
+    case 'zoomIn':
+    case 'zoomOut':
+    case 'zoomReset': {
+      if (op === 'zoomReset') {
+        await chrome.tabs.setZoom(tab.id, 0);   // 0 is the user's default zoom
+        return { ok: true, message: 'Normal size.' };
+      }
+      const now = await chrome.tabs.getZoom(tab.id);
+      const next = op === 'zoomIn'
+        ? ZOOM_STEPS.find(z => z > now + 0.001) || ZOOM_STEPS[ZOOM_STEPS.length - 1]
+        : ZOOM_STEPS.slice().reverse().find(z => z < now - 0.001) || ZOOM_STEPS[0];
+      await chrome.tabs.setZoom(tab.id, next);
+      return { ok: true, message: 'Zoom ' + Math.round(next * 100) + '%.' };
+    }
+    case 'screenshot': {
+      // What is on screen in this tab, and nothing else. It goes back to the
+      // page to be copied to the clipboard, never anywhere further.
+      const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+      return { ok: true, image: image };
+    }
+  }
+  return { ok: false, message: 'AccessiFlow does not know how to do that.' };
+}
+
 // ── Message router ────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.action) return;
+
+  if (message.action === 'handTab') {
+    const tab = sender && sender.tab;
+    if (!tab || tab.id === undefined) { sendResponse({ ok: false, message: 'Only a page can ask for this.' }); return; }
+    handTab(message.op, tab)
+      .then(sendResponse)
+      .catch(err => {
+        warn('handTab ' + message.op + ': ' + err.message);
+        sendResponse({ ok: false, message: 'Chrome would not allow that here.' });
+      });
+    return true;
+  }
 
   // AI operations: always async, always resolve to {success, text|error}.
   if (AI_OPERATIONS[message.action]) {

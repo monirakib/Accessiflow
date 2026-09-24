@@ -136,7 +136,9 @@ for (const f of CONTENT_SCRIPTS) {
     'modules/overlay.js': 'AccessiFlowOverlay',
     'modules/keyboard-nav.js': 'AccessiFlowKeyboardNav',
     'modules/voice-nav.js': 'VoiceNavModule',
-    'modules/screen-reader.js': 'AccessiFlowScreenReader'
+    'modules/screen-reader.js': 'AccessiFlowScreenReader',
+    'modules/pointer-dial.js': 'AccessiFlowPointerDial',
+    'modules/onscreen-keyboard.js': 'AccessiFlowScreenKeyboard'
   };
   const undefinedClasses = CONTENT_SCRIPTS
     .filter(f => expected[f] && typeof window[expected[f]] !== 'function')

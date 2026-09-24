@@ -266,11 +266,17 @@ class MotorModule {
             }, 50);
 
             this._dwellTimer = setTimeout(() => {
-              // Auto-click at cursor position
-              const target = document.elementFromPoint(lastX, lastY);
+              // Auto-click at cursor position. Seen through shadow roots, so
+              // resting on a key of the on-screen keyboard presses that key
+              // rather than the keyboard as a whole.
+              const A = window.AccessiFlowPageActions;
+              const target = A ? A.deepElementFromPoint(lastX, lastY) : document.elementFromPoint(lastX, lastY);
               if (target) {
                 target.click();
-                target.focus();
+                // Our own buttons never take focus: the on-screen keyboard
+                // would pull it out of the box being typed in.
+                const ours = window.AccessiFlowHandActions && window.AccessiFlowHandActions.isOurs(target);
+                if (!ours) target.focus();
               }
               indicator.style.display = 'none';
               const circle3 = indicator.querySelector('circle:last-child');
@@ -301,13 +307,17 @@ class MotorModule {
         this._tremorFilter = (e) => {
           const now = Date.now();
           const sinceLast = now - this._lastClickTime;
+          // What was really pressed. Inside a shadow root e.target is only the
+          // host, which made every key of the on-screen keyboard look like one
+          // element pressed twice.
+          const target = (e.composedPath && e.composedPath()[0]) || e.target;
 
           if (sinceLast < minInterval) {
             // A second click on a *different* element is the user moving on,
             // not a shake. Swallowing it would make the page feel dead.
-            if (e.target !== this._lastClickTarget) {
+            if (target !== this._lastClickTarget) {
               this._lastClickTime = now;
-              this._lastClickTarget = e.target;
+              this._lastClickTarget = target;
               return;
             }
             e.preventDefault();
@@ -315,7 +325,7 @@ class MotorModule {
             return false;
           }
           this._lastClickTime = now;
-          this._lastClickTarget = e.target;
+          this._lastClickTarget = target;
         };
         document.addEventListener('click', this._tremorFilter, true);
       } else {

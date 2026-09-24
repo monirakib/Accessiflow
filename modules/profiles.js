@@ -47,13 +47,14 @@
       icon: 'hand',
       label: 'Hand movement',
       need: 'Hand movement or tremor',
-      desc: 'Bigger buttons, steadier clicks, and near misses still land.',
+      desc: 'Bigger buttons, steadier clicks, near misses that still land, and a hold-click menu.',
       settings: {
         largeCursor: true, cursorSize: 2.5, bigTargets: true,
         focusHalo: true, stopAnimations: true, tremorFilter: true,
-        clickSnapping: true, focusLock: true, speechToText: true
+        clickSnapping: true, focusLock: true, speechToText: true,
+        holdDial: true
       },
-      home: ['bigTargets', 'keyboardOnly', 'clickSnapping', 'largeCursor', 'tremorFilter']
+      home: ['holdDial', 'onScreenKeyboard', 'bigTargets', 'clickSnapping', 'keyboardOnly', 'tremorFilter']
     },
     {
       id: 'cognitive', key: '4',
