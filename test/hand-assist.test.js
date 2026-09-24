@@ -84,6 +84,12 @@ function pointer(type, target, x, y, opts) {
   Object.defineProperty(ev, 'pointerType', { value: o.pointerType });
   Object.defineProperty(ev, 'pointerId', { value: o.pointerId });
   target.dispatchEvent(ev);
+  // As a browser does: the mouse event follows the pointer event.
+  if (type === 'pointerup' && o.pointerType === 'mouse') {
+    target.dispatchEvent(new window.MouseEvent('mouseup', {
+      bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: o.button
+    }));
+  }
   return ev;
 }
 function mouse(type, target, x, y, opts) {
@@ -170,6 +176,7 @@ function key(type, keyName, target) {
   pointer('pointermove', doc.documentElement, 300, 302);
   pointer('pointerup', doc.documentElement, 300, 302);
   const after = mouse('click', para, 300, 302);
+  await wait(5);
   check(ran.join() === 'back', 'moving left and letting go chooses Back: ' + ran.join());
   check(!dial.isOpen, 'and the ring closes');
   check(after.defaultPrevented && pageClicks === 1,
@@ -299,6 +306,7 @@ function key(type, keyName, target) {
     pointer('pointermove', doc.documentElement, 330, 370, { button: 2 });
     pointer('pointerup', doc.documentElement, 330, 370, { button: 2 });
     const menu = mouse('contextmenu', para, 330, 370, { button: 2 });
+    await wait(5);
     check(ran.pop() === 'keyboard', 'down and to the left is the Keyboard');
     check(menu.defaultPrevented, 'and the right-click menu that Windows opens on letting go is held back');
   }
@@ -347,6 +355,7 @@ function key(type, keyName, target) {
 
   // Selection is put back.
   {
+    await wait(20);   // the last ring's release has settled, as it has long before anyone selects again
     const text = para.firstChild;
     const range = doc.createRange();
     range.setStart(text, 0);
@@ -359,6 +368,31 @@ function key(type, keyName, target) {
     key('keydown', 'Escape');
     check(String(doc.getSelection()) === 'Some', 'whatever was selected before the ring opened is selected again after');
     pointer('pointerup', doc.documentElement, 400, 300);
+  }
+
+  // A choice that changes the selection is not undone by the ring putting
+  // the old one back: it runs after that.
+  {
+    await wait(20);
+    const text = para.firstChild;
+    doc.getSelection().collapse(text, 2);
+    const selectAllDial = new window.AccessiFlowPointerDial({
+      run: () => { const r = doc.createRange(); r.selectNodeContents(para); doc.getSelection().removeAllRanges(); doc.getSelection().addRange(r); }
+    });
+    dial.apply({ enabled: false });
+    selectAllDial.apply({ enabled: true, delay: 200, slots: ['selectAll'] });
+    pointer('pointerdown', para, 400, 300);
+    await wait(260);
+    pointer('pointermove', doc.documentElement, 400, 250);
+    pointer('pointermove', doc.documentElement, 400, 220);
+    pointer('pointerup', doc.documentElement, 400, 220);
+    mouse('click', para, 400, 220);
+    await wait(30);
+    check(String(doc.getSelection()) === para.textContent,
+      'Select all chosen from the ring stays selected: ' + String(doc.getSelection()).slice(0, 20));
+    selectAllDial.destroy();
+    dial.apply({ enabled: true, delay: 200 });
+    await wait(850);
   }
   await wait(850);
 
@@ -395,6 +429,7 @@ function key(type, keyName, target) {
       'the middle names what will happen: ' + ring().shadowRoot.querySelector('.middle text').textContent);
     pointer('pointerup', doc.documentElement, 400, 220);
     mouse('click', para, 400, 220);
+    await wait(5);
     check(ran.join() === 'copy', 'and letting go there runs it: ' + ran.join());
 
     pointer('pointerdown', para, 400, 300);

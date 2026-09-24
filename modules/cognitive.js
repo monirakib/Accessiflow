@@ -2,6 +2,10 @@
 // Reading mask, line ruler, simplify page, heading structure, alt text tooltips, pause media
 'use strict';
 
+// What a carousel or slider looks like in markup, across the common libraries.
+const CAROUSELS = '[aria-roledescription="carousel" i], [class*="carousel" i], [class*="slider" i], ' +
+  '[class*="slideshow" i], [class*="swiper" i], [class*="slick" i], [class*="splide" i], [class*="glide" i]';
+
 class CognitiveModule {
   constructor() {
     this._styleEl = null;
@@ -299,19 +303,30 @@ class CognitiveModule {
   applySimplifyPage(active) {
     try {
       if (active) {
-        const selectors = 'aside, .sidebar, .ad, [class*="advertisement"], .cookie-banner, .popup, .modal-overlay, .newsletter-signup, .social-share, [class*="cookie"], [class*="banner"], [class*="promo"], [id*="ad-"], .widget, [class*="sidebar"]';
+        const selectors = 'aside, [role="complementary"], .sidebar, .ad, .ads, .advert, [class*="advertisement"], ' +
+          '.cookie-banner, .popup, .modal-overlay, .newsletter-signup, .social-share, [class*="share-buttons"], ' +
+          '[class*="cookie"], [class*="banner"]:not(header):not([role="banner"]), [class*="promo"], [id*="ad-"], ' +
+          '[id^="ad_"], .widget, [class*="sidebar"], [class*="related-posts"], [class*="recommended"]';
         document.querySelectorAll(selectors).forEach(el => {
           try {
             // Don't hide essential elements
-            if (el.matches('main, article, [role="main"], nav, header, footer')) return;
-            if (el.closest('main, article, [role="main"]')) return;
-            this._simplifiedEls.push({ el, display: el.style.display });
-            el.style.display = 'none';
+            if (el.matches('main, article, [role="main"], nav, header, footer, body, html')) return;
+            if (el.closest('[id^="accessiflow-"]')) return;
+            // Inside the main content too, as long as it is not the content
+            // itself: nothing holding the page's heading or a form. It used
+            // to skip everything inside <main>, which on most modern pages is
+            // where the sidebars are, so it did nothing at all.
+            if (el.querySelector('h1, input:not([type="hidden"]), select, textarea, [role="main"], main, article')) return;
+            this._simplifiedEls.push({ el, display: el.style.getPropertyValue('display'), priority: el.style.getPropertyPriority('display') });
+            el.style.setProperty('display', 'none', 'important');
           } catch (err) { /* skip */ }
         });
       } else {
-        this._simplifiedEls.forEach(({ el, display }) => {
-          try { el.style.display = display || ''; } catch (err) { /* skip */ }
+        this._simplifiedEls.forEach(({ el, display, priority }) => {
+          try {
+            if (display) el.style.setProperty('display', display, priority || '');
+            else el.style.removeProperty('display');
+          } catch (err) { /* skip */ }
         });
         this._simplifiedEls = [];
       }
@@ -386,11 +401,35 @@ class CognitiveModule {
           });
         });
         this._mediaObserver.observe(document.body, { childList: true, subtree: true });
+
+        // Carousels and sliders: pressed pause where the page offers one,
+        // animation frozen inside them, and old-style marquees stopped. It
+        // used to pause only video and sound, whatever the setting said.
+        this._stopCarousels();
+        if (!this._carouselStyle) {
+          this._carouselStyle = document.createElement('style');
+          this._carouselStyle.id = 'accessiflow-pause-carousels';
+          this._carouselStyle.textContent = CAROUSELS.split(', ').map(sel => sel + ', ' + sel + ' *').join(', ') +
+            ' { animation-play-state: paused !important; transition: none !important; scroll-behavior: auto !important; }';
+          (document.head || document.documentElement).appendChild(this._carouselStyle);
+        }
       } else {
         if (this._mediaObserver) { this._mediaObserver.disconnect(); this._mediaObserver = null; }
         this._pausedMedia = [];
+        if (this._carouselStyle) { this._carouselStyle.remove(); this._carouselStyle = null; }
+        document.querySelectorAll('marquee').forEach(m => { try { m.start(); } catch (err) { /* skip */ } });
       }
     } catch (e) { this._warn('applyPauseMedia: ' + e.message); }
+  }
+
+  _stopCarousels() {
+    document.querySelectorAll(CAROUSELS).forEach(el => {
+      const pause = el.querySelector('[aria-label*="pause" i], [title*="pause" i], [class*="pause"], button[class*="stop"]');
+      if (pause && !pause.closest('[id^="accessiflow-"]')) {
+        try { pause.click(); } catch (err) { /* skip */ }
+      }
+    });
+    document.querySelectorAll('marquee').forEach(m => { try { m.stop(); } catch (err) { /* skip */ } });
   }
 
   // ── 7. Dictionary Tooltips (double-click word) ─────────────
@@ -483,47 +522,166 @@ class CognitiveModule {
   }
 
   // ── 9. Numbered Form Steps ────────────────────────────────
+  // One question at a time. It used to put a numbered badge beside each
+  // field and leave the whole form on screen. Now a form of three questions
+  // or more shows one at a time, with "Question 2 of 5", Back and Next. Its
+  // send button stays where it was, so the form can always be sent.
   applyFormSteps(active) {
+    const FIELDS = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]), textarea, select';
     try {
-      if (active) {
-        const forms = document.querySelectorAll('form');
-        forms.forEach(form => {
-          const fields = form.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea, select');
-          fields.forEach((field, idx) => {
-            if (field.getAttribute('data-accessiflow-step')) return;
-            field.setAttribute('data-accessiflow-step', idx + 1);
-
-            const stepLabel = document.createElement('span');
-            stepLabel.className = 'accessiflow-form-step';
-            stepLabel.setAttribute('aria-hidden', 'true');
-            stepLabel.style.cssText = 'display:inline-block;background:#6366f1;color:#fff;width:22px;height:22px;border-radius:50%;text-align:center;line-height:22px;font-size:11px;font-weight:bold;margin-right:6px;font-family:system-ui,sans-serif;vertical-align:middle;';
-            stepLabel.textContent = idx + 1;
-
-            const parent = field.parentElement;
-            if (parent) {
-              parent.insertBefore(stepLabel, field);
-              this._formStepLabels.push({ field, stepLabel });
-            }
-          });
-        });
-      } else {
-        this._formStepLabels.forEach(({ field, stepLabel }) => {
-          try { field.removeAttribute('data-accessiflow-step'); stepLabel.remove(); } catch (e) { /* skip */ }
+      if (!active) {
+        this._formStepLabels.forEach(({ nodes, bar }) => {
+          try {
+            nodes.forEach(n => n.classList.remove('accessiflow-step-hidden'));
+            bar.remove();
+          } catch (e) { /* skip */ }
         });
         this._formStepLabels = [];
+        if (this._formStepStyle) { this._formStepStyle.remove(); this._formStepStyle = null; }
+        return;
       }
+      if (!this._formStepStyle) {
+        this._formStepStyle = document.createElement('style');
+        this._formStepStyle.id = 'accessiflow-form-steps-style';
+        this._formStepStyle.textContent = '.accessiflow-step-hidden { display: none !important; }';
+        (document.head || document.documentElement).appendChild(this._formStepStyle);
+      }
+
+      document.querySelectorAll('form').forEach(form => {
+        if (form.closest('[id^="accessiflow-"]') || this._formStepLabels.some(s => s.form === form)) return;
+        const fields = Array.from(form.querySelectorAll(FIELDS)).filter(f => f.getClientRects().length > 0);
+
+        // One question per field, and one for each group of radio buttons
+        // or check boxes that share a name.
+        const questions = [];
+        const byName = new Map();
+        fields.forEach(field => {
+          const type = (field.getAttribute('type') || '').toLowerCase();
+          if ((type === 'radio' || type === 'checkbox') && field.name) {
+            if (byName.has(field.name)) { byName.get(field.name).fields.push(field); return; }
+            const q = { fields: [field] };
+            byName.set(field.name, q);
+            questions.push(q);
+            return;
+          }
+          questions.push({ fields: [field] });
+        });
+        if (questions.length < 3) return;
+
+        // What to hide for each question: the largest wrapper holding only
+        // its own fields, or, in a form laid out flat, the fields and their
+        // labels themselves.
+        const all = new Set(fields);
+        questions.forEach(q => {
+          let wrap = q.fields.length > 1 ? q.fields[0].closest('fieldset') : null;
+          if (!wrap) {
+            wrap = q.fields[0];
+            while (wrap.parentElement && wrap.parentElement !== form) {
+              const inside = Array.from(wrap.parentElement.querySelectorAll(FIELDS)).filter(f => all.has(f));
+              if (inside.some(f => q.fields.indexOf(f) === -1)) break;
+              if (wrap.parentElement.querySelector('button[type="submit"], input[type="submit"], button:not([type])')) break;
+              wrap = wrap.parentElement;
+            }
+          }
+          const nodes = new Set([wrap]);
+          if (wrap === q.fields[0] || q.fields.indexOf(wrap) > -1) {
+            q.fields.forEach(f => {
+              nodes.add(f);
+              (f.labels ? Array.from(f.labels) : []).forEach(l => { if (!l.contains(f) || l.parentElement === form) nodes.add(l); });
+              const wrappingLabel = f.closest('label');
+              if (wrappingLabel && form.contains(wrappingLabel)) nodes.add(wrappingLabel);
+            });
+          }
+          q.nodes = Array.from(nodes);
+        });
+
+        const bar = document.createElement('div');
+        bar.className = 'accessiflow-form-stepper';
+        bar.setAttribute('role', 'group');
+        bar.setAttribute('aria-label', 'One question at a time');
+        bar.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:8px 10px;' +
+          'border:2px solid #4f46e5;border-radius:10px;background:#eef2ff;color:#1e1b4b;font:600 15px/1.3 system-ui,sans-serif;';
+        const where = document.createElement('span');
+        where.setAttribute('role', 'status');
+        where.setAttribute('aria-live', 'polite');
+        where.style.flex = '1';
+        const button = text => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = text;
+          b.style.cssText = 'min-height:40px;padding:0 16px;border-radius:8px;border:2px solid #4f46e5;background:#fff;' +
+            'color:#1e1b4b;font:700 15px system-ui,sans-serif;cursor:pointer;';
+          return b;
+        };
+        const back = button('Back');
+        const next = button('Next');
+        bar.append(where, back, next);
+        form.insertBefore(bar, form.firstChild);
+
+        const state = { form, bar, questions, at: 0, nodes: [].concat(...questions.map(q => q.nodes)) };
+        const show = (index, focus) => {
+          state.at = Math.max(0, Math.min(questions.length - 1, index));
+          questions.forEach((q, i) => q.nodes.forEach(n => n.classList.toggle('accessiflow-step-hidden', i !== state.at)));
+          where.textContent = 'Question ' + (state.at + 1) + ' of ' + questions.length;
+          back.disabled = state.at === 0;
+          next.disabled = state.at === questions.length - 1;
+          back.style.opacity = back.disabled ? '.45' : '1';
+          next.style.opacity = next.disabled ? '.45' : '1';
+          if (focus) { try { questions[state.at].fields[0].focus(); } catch (e) { /* ok */ } }
+        };
+        back.addEventListener('click', () => show(state.at - 1, true));
+        next.addEventListener('click', () => {
+          // An answer the form will refuse is said now, not after the last question.
+          const bad = questions[state.at].fields.find(f => typeof f.checkValidity === 'function' && !f.checkValidity());
+          if (bad) { try { bad.reportValidity(); } catch (e) { /* ok */ } return; }
+          show(state.at + 1, true);
+        });
+        // A field refused on sending, or reached some other way, is brought into view.
+        form.addEventListener('invalid', e => {
+          const i = questions.findIndex(q => q.fields.indexOf(e.target) > -1);
+          if (i > -1 && i !== state.at) show(i, false);
+        }, true);
+        show(0, false);
+        this._formStepLabels.push(state);
+      });
     } catch (e) { this._warn('applyFormSteps: ' + e.message); }
   }
 
   // ── 10. Break Timer ──────────────────────────────────────
+  //
+  // One reminder for the whole browser. Each tab used to run its own timer
+  // from when it loaded, restart it whenever any setting changed, and show
+  // and say the reminder by itself, so with several tabs open "Time for a
+  // break" came at unpredictable moments, from tabs nobody was looking at.
+  // When the last break was taken is kept in storage; only the tab the user
+  // is looking at shows the reminder, and a long spell away counts as a
+  // break.
   applyBreakTimer(active, minutes) {
+    const KEY = 'accessiflow_break';
+    const AWAY = 5 * 60 * 1000;          // this long with no tab checking in is a break
     try {
       if (active) {
         if (this._breakTimerEl) return;
         const interval = (minutes || 20) * 60 * 1000; // ms
 
-        this._breakTimerInterval = setInterval(() => {
-          // Show break reminder
+        const check = () => {
+          if (document.hidden) return;
+          try {
+            chrome.storage.local.get(KEY, data => {
+              const now = Date.now();
+              const stored = data && data[KEY];
+              let since = stored && stored.since;
+              // Never started, or the browser was closed or left alone.
+              if (!since || !stored.seen || now - stored.seen > AWAY) since = now;
+              const due = now - since >= interval && document.hasFocus() &&
+                !document.getElementById('accessiflow-break-reminder');
+              chrome.storage.local.set({ [KEY]: { since: due ? now : since, seen: now } });
+              if (due) showReminder();
+            });
+          } catch (e) { /* cut off from the extension */ }
+        };
+
+        const showReminder = () => {
           const reminder = document.createElement('div');
           reminder.id = 'accessiflow-break-reminder';
           reminder.setAttribute('role', 'alert');
@@ -538,22 +696,29 @@ class CognitiveModule {
           reminder.appendChild(closeBtn);
 
           const overlay = document.createElement('div');
+          overlay.id = 'accessiflow-break-overlay';
           overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:2147483646;';
           overlay.addEventListener('click', () => { reminder.remove(); overlay.remove(); });
 
           document.body.appendChild(overlay);
           document.body.appendChild(reminder);
+          try { closeBtn.focus(); } catch (e) { /* ok */ }
 
           if (typeof window.AccessiFlowSpeak === 'function') {
             window.AccessiFlowSpeak('Time for a break. Rest your eyes and stretch.');
           }
-        }, interval);
+        };
+
+        this._breakTimerInterval = setInterval(check, 30000);
+        check();
         this._breakTimerEl = true;
       } else {
         if (this._breakTimerInterval) { clearInterval(this._breakTimerInterval); this._breakTimerInterval = null; }
         this._breakTimerEl = null;
-        const existing = document.getElementById('accessiflow-break-reminder');
-        if (existing) existing.remove();
+        ['accessiflow-break-reminder', 'accessiflow-break-overlay'].forEach(id => {
+          const existing = document.getElementById(id);
+          if (existing) existing.remove();
+        });
       }
     } catch (e) { this._warn('applyBreakTimer: ' + e.message); }
   }

@@ -304,6 +304,8 @@
         scroller: A ? A.scrollerAt(p.target) : (document.scrollingElement || document.documentElement),
         scroll: null
       };
+      // A restore still waiting from the last time is out of date now.
+      this._settleNow(false);
       this._holdSelection();
       this._draw(true);
     }
@@ -331,6 +333,9 @@
 
     _track(x, y) {
       const o = this._open;
+      // A held button moving over text goes on selecting it underneath the
+      // ring, whatever the page's styles say; it is undone as it happens.
+      if (o.holding) this._putSelectionBack(this._saved);
       if (!o.moved && Math.hypot(x - o.ox, y - o.oy) >= MOVED) o.moved = true;
       if (o.mode === 'drag' && !o.moved) return;
       this._point(x, y);
@@ -378,7 +383,7 @@
         this._highlight(index);
         return;
       }
-      if (index >= 0 && index === down) { this._choose(index); return; }
+      if (index >= 0 && index === down) { this._choose(index, true); return; }
       if (index < 0 && down < 0) this.close();
     }
 
@@ -393,7 +398,12 @@
       this._updateScroll();
     }
 
-    _choose(index) {
+    /**
+     * @param {number} index
+     * @param {boolean} [now] no held button was dragged over text (a click
+     *   on the ring, a key), so there is no selection to wait for
+     */
+    _choose(index, now) {
       const item = this._items[index];
       if (!item) return;
       if (item.scroll) {
@@ -404,13 +414,15 @@
         return;
       }
       this.close();
-      try { this._run(item.id); } catch (err) { /* the page may be navigating away */ }
+      this._afterSettle(() => this._run(item.id));
+      if (now) this._settleNow(true);
     }
 
     close() {
       if (!this._open) return;
       this._stopScroll();
       this._open = null;
+      this._closedAt = Date.now();
       if (this._host) this._host.style.display = 'none';
       this._releaseSelection();
     }
@@ -484,7 +496,7 @@
         case 'Enter': case ' ':
           if (current >= 0) {
             if (this._items[current].scroll) this._step(this._items[current].scroll);
-            else this._choose(current);
+            else this._choose(current, true);
           }
           break;
         default: handled = false;
@@ -523,20 +535,68 @@
       (document.head || document.documentElement).appendChild(this._noSelect);
     }
 
-    _releaseSelection() {
-      if (this._noSelect) this._noSelect.remove();
-      const saved = this._saved;
-      this._saved = null;
+    /** Puts back what was selected when the ring opened, if anything has changed it. */
+    _putSelectionBack(saved) {
       if (!saved) return;
       try {
         if (saved.field) {
-          if (saved.field.isConnected) saved.field.setSelectionRange(saved.start, saved.end, saved.dir || 'none');
+          const f = saved.field;
+          if (f.isConnected && (f.selectionStart !== saved.start || f.selectionEnd !== saved.end)) {
+            f.setSelectionRange(saved.start, saved.end, saved.dir || 'none');
+          }
         } else if (saved.ranges) {
           const sel = document.getSelection();
+          const same = sel.rangeCount === saved.ranges.length && saved.ranges.every((r, i) => {
+            const now = sel.getRangeAt(i);
+            return now.startContainer === r.startContainer && now.startOffset === r.startOffset &&
+              now.endContainer === r.endContainer && now.endOffset === r.endOffset;
+          });
+          if (same) return;
           sel.removeAllRanges();
           saved.ranges.forEach(r => sel.addRange(r));
         }
       } catch (e) { /* the page moved on */ }
+    }
+
+    _releaseSelection() {
+      const saved = this._saved;
+      this._saved = null;
+      this._putSelectionBack(saved);
+      // Chrome settles a mouse selection as the button comes up, which is
+      // after this runs, and would leave the text dragged across selected
+      // (and, with Read what I select on, read out). So it is put back once
+      // more when that mouse-up has been handled, and a choice made on the
+      // ring waits until then: Select all run first would be undone by it.
+      this._settleNow(false);
+      const settle = { saved: saved, queue: [], timer: null, onUp: null };
+      settle.onUp = () => setTimeout(() => this._settleNow(true, settle), 0);
+      window.addEventListener('mouseup', settle.onUp, true);
+      // No mouse-up to wait for: closed from the keyboard, or by a click already over.
+      settle.timer = setTimeout(() => this._settleNow(true, settle), 300);
+      this._settle = settle;
+    }
+
+    /** Ends the wait after the ring closed: puts the selection back if asked, then runs what was chosen. */
+    _settleNow(restore, only) {
+      const settle = this._settle;
+      if (!settle || (only && settle !== only)) return;
+      this._settle = null;
+      clearTimeout(settle.timer);
+      window.removeEventListener('mouseup', settle.onUp, true);
+      if (restore) this._putSelectionBack(settle.saved);
+      if (this._noSelect && !this._open) this._noSelect.remove();
+      settle.queue.forEach(fn => { try { fn(); } catch (e) { /* the page may be navigating away */ } });
+    }
+
+    /** Runs `fn` once the page has settled from the ring, straight away if it has. */
+    _afterSettle(fn) {
+      if (this._settle) this._settle.queue.push(fn);
+      else fn();
+    }
+
+    /** True while the ring is open and for a moment after, when the page is still settling from it. */
+    get recentlyActive() {
+      return Boolean(this._open || this._press) || Date.now() - (this._closedAt || 0) < 800;
     }
 
     // ── Scrolling while held ────────────────────────────────────────────────

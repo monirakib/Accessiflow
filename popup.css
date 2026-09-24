@@ -452,6 +452,9 @@ main::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 /* Dimmed, not hidden: a setting that depends on another stays discoverable
    so the relationship between the two is learnable. */
 .row--inactive { opacity: 0.55; }
+/* A setting that only matters once another is on waits out of sight until
+   then: the hold-click menu alone has eleven. Search still shows them. */
+#sections:not(.is-searching) .row--inactive[data-depends-on] { display: none; }
 
 .row-main {
   display: flex;

@@ -101,21 +101,23 @@ class VisionModule {
         css += '* { font-family: ' + f + ' !important; }\n';
       }
       // 13. Focus mode (CSS only part)
-      if (s.focusMode) {
-        css += '.accessiflow-focus-glow { outline: 3px solid #4fffb0 !important; outline-offset: 2px !important; box-shadow: 0 0 12px 4px rgba(79,255,176,0.4) !important; }\n';
-      }
       // 14. Bionic reading
       if (s.bionicReading) {
         css += '.accessiflow-bionic b { font-weight: 700 !important; }\n';
       }
       // 15. Line numbering
       if (s.lineNumbering) {
-        css += '.accessiflow-line-number { position: absolute; left: -40px; color: #888; font-size: 11px; font-family: "Space Mono", monospace; user-select: none; pointer-events: none; }\n';
+        css += '.accessiflow-line-number { position: absolute; left: -40px; color: #666; font-size: 11px; font-family: "Space Mono", monospace; user-select: none; pointer-events: none; }\n';
         css += 'p, li, dd, blockquote { position: relative !important; margin-left: 50px !important; }\n';
       }
       // 16. SVG / icon scaling
       if (s.iconScaling && s.iconScaling > 1) {
-        css += 'svg, img[src$=".svg"], .icon, [class*="icon"], [class*="Icon"] { transform: scale(' + s.iconScaling + ') !important; transform-origin: center !important; }\n';
+        // Icons only. `[class*="icon"]` also caught containers such as a
+        // "lexicon" section or an "iconic-header" bar, and scaled whole
+        // regions of the page up over each other.
+        css += 'svg:not(:root), img[src$=".svg"], i[class*="icon"], span[class*="icon"]:empty, .icon, [class^="icon-"], ' +
+          '[class*=" icon-"], .material-icons, .material-symbols-outlined, i.fa, i[class*="fa-"] ' +
+          '{ transform: scale(' + s.iconScaling + ') !important; transform-origin: center !important; }\n';
       }
       // 17. Saturation control
 
@@ -284,41 +286,62 @@ class VisionModule {
   }
 
   // ── 13. Focus mode ────────────────────────────────────────
+  // Dim everything else: the page darkened around the block of text under
+  // the pointer, or the thing the keyboard is on. It used to put a glow round
+  // the focused control and dim nothing, whatever the setting said.
   applyFocusMode(active) {
     try {
       if (active) {
-        this._focusModeHandlers.focusin = (e) => {
-          try {
-            const el = e.target;
-            if (el && el.classList) {
-              this._originalOutlines.set(el, el.style.outline || '');
-              el.classList.add('accessiflow-focus-glow');
-            }
-          } catch (err) { /* skip */ }
+        if (this._focusSpot) return;
+        const Overlay = window.AccessiFlowOverlay;
+        if (!Overlay) { this._warn('overlay primitive not loaded'); return; }
+        this._focusSpot = new Overlay({ id: 'accessiflow-focus-spot', padding: 8 });
+        this._focusSpot.cutout({ dim: 0.6, radius: 8, feather: 10 });
+
+        const BLOCK = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th, dd, dt, figure, figcaption, label, ' +
+          'button, a, input, select, textarea, summary, [role="button"], [role="link"]';
+        const blockAt = el => {
+          for (let n = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+            if (n.id && String(n.id).indexOf('accessiflow-') === 0) return null;
+            if (!n.matches || !n.matches(BLOCK)) continue;
+            const r = n.getBoundingClientRect();
+            if (r.width < 4 || r.height < 4) continue;
+            // Not something the size of the page.
+            if (r.height > window.innerHeight * 0.8 && r.width > window.innerWidth * 0.8) return null;
+            return n;
+          }
+          return null;
         };
-        this._focusModeHandlers.focusout = (e) => {
-          try {
-            const el = e.target;
-            if (el && el.classList) {
-              el.classList.remove('accessiflow-focus-glow');
-              const orig = this._originalOutlines.get(el);
-              if (orig !== undefined) el.style.outline = orig;
-              this._originalOutlines.delete(el);
-            }
-          } catch (err) { /* skip */ }
+        let pending = null;
+        let target = null;
+        const show = el => {
+          if (!el) return;
+          target = el;
+          if (!this._focusSpot.follow(el)) this._focusSpot.hide();
         };
+        this._focusModeHandlers.move = e => {
+          pending = e.target;
+          if (this._focusModeFrame) return;
+          this._focusModeFrame = requestAnimationFrame(() => {
+            this._focusModeFrame = null;
+            const el = blockAt(pending);
+            if (el && el !== target) show(el);
+          });
+        };
+        this._focusModeHandlers.focusin = e => {
+          const el = e.target && e.target.nodeType === 1 && !(e.target.id && String(e.target.id).indexOf('accessiflow-') === 0) ? e.target : null;
+          if (el && el !== document.body) show(el);
+        };
+        document.addEventListener('mouseover', this._focusModeHandlers.move, { passive: true });
         document.addEventListener('focusin', this._focusModeHandlers.focusin);
-        document.addEventListener('focusout', this._focusModeHandlers.focusout);
       } else {
-        if (this._focusModeHandlers.focusin) {
+        if (this._focusModeHandlers.move) {
+          document.removeEventListener('mouseover', this._focusModeHandlers.move);
           document.removeEventListener('focusin', this._focusModeHandlers.focusin);
-          document.removeEventListener('focusout', this._focusModeHandlers.focusout);
           this._focusModeHandlers = { focusin: null, focusout: null };
         }
-        document.querySelectorAll('.accessiflow-focus-glow').forEach(el => {
-          el.classList.remove('accessiflow-focus-glow');
-        });
-        this._originalOutlines.clear();
+        if (this._focusModeFrame) { cancelAnimationFrame(this._focusModeFrame); this._focusModeFrame = null; }
+        if (this._focusSpot) { this._focusSpot.destroy(); this._focusSpot = null; }
       }
     } catch (e) { this._warn('applyFocusMode: ' + e.message); }
   }
@@ -440,7 +463,8 @@ class VisionModule {
           num.className = 'accessiflow-line-number';
           num.setAttribute('aria-hidden', 'true');
           num.textContent = lineNum;
-          el.style.position = 'relative';
+          // Positioned by the stylesheet while this is on; writing it on the
+          // element as well left every paragraph changed after it was off.
           el.insertBefore(num, el.firstChild);
           this._lineNumberEls.push({ el, num });
           lineNum++;

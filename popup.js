@@ -835,6 +835,10 @@
     const words = searchWords(query);
 
     let matches = 0;
+    // Settings that only matter once another is on stay out of sight until
+    // then, except in search results, so a search still finds them.
+    const sections = document.getElementById('sections');
+    if (sections) sections.classList.toggle('is-searching', words.length > 0);
 
     document.querySelectorAll('#sections .section').forEach(section => {
       let hits = 0;

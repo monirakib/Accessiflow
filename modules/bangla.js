@@ -171,22 +171,22 @@ class BanglaModule {
           if (banglaLabel) {
             field.setAttribute('data-accessiflow-bn-label', 'true');
 
-            // Add Bangla hint label
+            // Add Bangla hint label. In the page's own text colour: the
+            // bright green it used to be is unreadable on a white page.
             const hint = document.createElement('span');
             hint.setAttribute('data-accessiflow-bn-hint', 'true');
-            hint.style.cssText = 'display:block;font-size:11px;color:#4fffb0;font-family:"Noto Sans Bengali",sans-serif;margin-top:2px;';
+            hint.style.cssText = 'display:block;font-size:12px;color:inherit;opacity:.85;font-family:"Noto Sans Bengali","Nirmala UI",sans-serif;margin-top:2px;';
             hint.textContent = banglaLabel;
+
+            // Set Bangla placeholder if empty, and remember to take it away.
+            const placeholderAdded = !field.placeholder && field.tagName !== 'SELECT';
+            if (placeholderAdded) field.placeholder = banglaLabel;
 
             const parent = field.parentElement;
             if (parent) {
               parent.insertBefore(hint, field.nextSibling);
-              this._formLabels.push({ field, hint });
             }
-
-            // Set Bangla placeholder if empty
-            if (!field.placeholder) {
-              field.placeholder = banglaLabel;
-            }
+            this._formLabels.push({ field, hint, placeholderAdded });
           }
         });
 
@@ -221,7 +221,7 @@ class BanglaModule {
             btn.setAttribute('data-accessiflow-bn-orig', btn.textContent || btn.value);
             const hint = document.createElement('span');
             hint.setAttribute('data-accessiflow-bn-btn-hint', 'true');
-            hint.style.cssText = 'font-size:10px;color:#4fffb0;margin-left:6px;font-family:"Noto Sans Bengali",sans-serif;';
+            hint.style.cssText = 'font-size:.85em;color:inherit;margin-left:6px;font-family:"Noto Sans Bengali","Nirmala UI",sans-serif;';
             hint.textContent = '(' + map[text] + ')';
             if (btn.tagName === 'BUTTON') {
               btn.appendChild(hint);
@@ -230,9 +230,11 @@ class BanglaModule {
           }
         });
       } else {
-        this._formLabels.forEach(({ field, hint }) => {
+        this._formLabels.forEach(({ field, hint, placeholderAdded }) => {
           try {
             field.removeAttribute('data-accessiflow-bn-label');
+            field.removeAttribute('data-accessiflow-bn-orig');
+            if (placeholderAdded) field.removeAttribute('placeholder');
             hint.remove();
           } catch (e) { /* skip */ }
         });
@@ -242,37 +244,56 @@ class BanglaModule {
   }
 
   // ── Bangla Number Conversion ──────────────────────────────
+  //
+  // Each changed text node is remembered with what it said, and nothing is
+  // written onto the page's elements. It used to mark the element instead,
+  // skip any element already marked, and leave the marks behind when it put
+  // the numbers back, so after any other setting changed (which switches
+  // everything off and on again) the numbers stayed in English for good, and
+  // only the first number in each element was ever changed.
+  _eachText(test, change) {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        const parent = node.parentElement;
+        if (!parent || parent.closest('script, style, noscript, code, pre, textarea, [id^="accessiflow-"], [contenteditable="true"]')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return test(node.data) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      }
+    });
+    const nodes = [];
+    let node;
+    while ((node = walker.nextNode())) nodes.push(node);
+    nodes.forEach(n => {
+      const before = n.data;
+      const converted = change(before);
+      if (converted === before) return;
+      // Numbers and dates can both change one text; what it said first is
+      // what comes back.
+      if (!this._changedText.has(n)) {
+        this._changedText.add(n);
+        this._translatedEls.push({ node: n, original: before });
+      }
+      n.data = converted;
+    });
+  }
+
+  _restoreText() {
+    this._translatedEls.forEach(({ node, original }) => {
+      try { node.data = original; } catch (e) { /* skip */ }
+    });
+    this._translatedEls = [];
+    this._changedText = new WeakSet();
+  }
+
   applyBanglaNumbers(active) {
     try {
+      if (!this._changedText) this._changedText = new WeakSet();
       if (active) {
         const banglaDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-          acceptNode: (node) => {
-            if (node.parentElement && node.parentElement.matches('script, style, noscript, code, pre, input, textarea')) {
-              return NodeFilter.FILTER_REJECT;
-            }
-            if (/\d/.test(node.textContent)) return NodeFilter.FILTER_ACCEPT;
-            return NodeFilter.FILTER_SKIP;
-          }
-        });
-
-        let textNode;
-        while ((textNode = walker.nextNode())) {
-          if (textNode.parentElement.getAttribute('data-accessiflow-bn-num')) continue;
-          const original = textNode.textContent;
-          const converted = original.replace(/\d/g, d => banglaDigits[parseInt(d)]);
-          if (converted !== original) {
-            textNode.parentElement.setAttribute('data-accessiflow-bn-num', original);
-            textNode.textContent = converted;
-            this._translatedEls.push({ node: textNode, original });
-          }
-        }
+        this._eachText(text => /\d/.test(text), text => text.replace(/\d/g, d => banglaDigits[Number(d)]));
       } else {
-        this._translatedEls.forEach(({ node, original }) => {
-          try { node.textContent = original; node.parentElement.removeAttribute('data-accessiflow-bn-num'); } catch (e) { /* skip */ }
-        });
-        this._translatedEls = [];
+        this._restoreText();
       }
     } catch (e) { this._warn('applyBanglaNumbers: ' + e.message); }
   }
@@ -299,30 +320,22 @@ class BanglaModule {
         };
 
         const allTerms = Object.assign({}, banglaMonths, banglaDays);
-        const pattern = new RegExp('\\b(' + Object.keys(allTerms).join('|') + ')\\b', 'gi');
-
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-          acceptNode: (node) => {
-            if (node.parentElement && node.parentElement.matches('script, style, noscript, code, pre')) return NodeFilter.FILTER_REJECT;
-            if (pattern.test(node.textContent)) { pattern.lastIndex = 0; return NodeFilter.FILTER_ACCEPT; }
-            pattern.lastIndex = 0;
-            return NodeFilter.FILTER_SKIP;
-          }
-        });
-
-        let textNode;
-        while ((textNode = walker.nextNode())) {
-          if (textNode.parentElement.getAttribute('data-accessiflow-bn-date')) continue;
-          const original = textNode.textContent;
-          const converted = original.replace(pattern, match => allTerms[match.toLowerCase()] || match);
-          if (converted !== original) {
-            textNode.parentElement.setAttribute('data-accessiflow-bn-date', 'true');
-            textNode.textContent = converted;
-            this._translatedEls.push({ node: textNode, original });
-          }
-        }
+        // Only in a date. Short forms and "May" are ordinary English words
+        // too ("the sun", "she sat", "you may"), and used to be translated
+        // wherever they appeared; now they change only beside a number, as in
+        // "12 Mar" or "Sat 5". Full names of months and days change anywhere.
+        const alwaysNames = Object.keys(allTerms).filter(k => k.length > 3 && k !== 'may');
+        const dateOnly = Object.keys(allTerms).filter(k => alwaysNames.indexOf(k) === -1);
+        if (!this._changedText) this._changedText = new WeakSet();
+        const DIGIT = '[0-9\\u09E6-\\u09EF]';
+        const pattern = new RegExp(
+          '\\b(' + alwaysNames.join('|') + ')\\b' +
+          '|(?<=' + DIGIT + '(?:st|nd|rd|th)?[\\s,./-]{0,3})\\b(' + dateOnly.join('|') + ')\\b' +
+          '|\\b(' + dateOnly.join('|') + ')\\b(?=[\\s,./-]{0,3}' + DIGIT + ')', 'gi');
+        this._eachText(text => { pattern.lastIndex = 0; return pattern.test(text); },
+          text => { pattern.lastIndex = 0; return text.replace(pattern, match => allTerms[match.toLowerCase()] || match); });
       }
-      // Cleanup handled by banglaNumbers false path which shares _translatedEls
+      // Put back with the numbers, which share this switch.
     } catch (e) { this._warn('applyBanglaDateFormat: ' + e.message); }
   }
 
@@ -332,8 +345,9 @@ class BanglaModule {
       this._getStyle().textContent = css;
       this.applyBanglaTTS(!!settings.banglaFont);
       this.applyBanglaFormLabels(!!settings.banglaFormLabels);
-      this.applyBanglaNumbers(!!settings.banglaNumbers);
+      // Dates first, while their numbers are still the ones a date is found by.
       this.applyBanglaDateFormat(!!settings.banglaNumbers); // shares toggle
+      this.applyBanglaNumbers(!!settings.banglaNumbers);
     } catch (e) { this._warn('apply: ' + e.message); }
   }
 
@@ -341,11 +355,7 @@ class BanglaModule {
     try {
       if (this._styleEl) { this._styleEl.remove(); this._styleEl = null; }
       this.applyBanglaFormLabels(false);
-      // Restore number/date translations
-      this._translatedEls.forEach(({ node, original }) => {
-        try { node.textContent = original; } catch (e) { /* skip */ }
-      });
-      this._translatedEls = [];
+      this._restoreText();
     } catch (e) { this._warn('destroy: ' + e.message); }
   }
 }
