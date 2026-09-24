@@ -211,6 +211,7 @@
         <tr><td>Form briefs</td><td>The form's visible text and field structure</td><td>To generate a plain-language summary before you fill it in</td></tr>
         <tr><td>Page simplifier / TL;DR</td><td>The page's visible text</td><td>To produce a simplified rewrite or summary</td></tr>
         <tr><td>Image descriptions (alt text)</td><td>The specific image being described</td><td>To generate alt text for an unlabeled image</td></tr>
+        <tr><td>Explain hard words</td><td>The single word you double-click, and nothing else</td><td>Looked up in the free public dictionary at dictionaryapi.dev, only when that setting is on</td></tr>
       </tbody>
     </table>
   </div>
@@ -241,6 +242,7 @@
   <ul>
     <li><strong>AccessiFlow's own proxy server</strong> (hosted on Cloudflare Workers) — routes the request and applies caching and rate limits.</li>
     <li><strong>A third-party model hosting provider</strong> — runs the language model that generates the label, summary or description.</li>
+    <li><strong>dictionaryapi.dev</strong> — a free public dictionary, which receives the single word you double-click when <em>Explain hard words</em> is on.</li>
   </ul>
   <p class="soft">Neither party uses this content to train models on our behalf or retains it beyond what's needed to serve the request.</p>
 

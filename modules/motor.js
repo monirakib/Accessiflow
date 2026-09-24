@@ -223,10 +223,6 @@ class MotorModule {
           css += 'a:focus, button:focus, input:focus, select:focus, textarea:focus, [tabindex]:focus { outline:3px solid #4fffb0 !important; outline-offset:3px !important; }\n';
         }
       }
-      // 8. Edge scrolling
-      if (s.edgeScrolling) {
-        css += 'html { scroll-behavior: smooth !important; }\n';
-      }
     } catch (e) { this._warn('buildCSS: ' + e.message); }
     return css;
   }
@@ -260,44 +256,64 @@ class MotorModule {
   }
 
   // ── 6. Sticky hover ──────────────────────────────────────
+  //
+  // The menu item last pointed at keeps its highlight after the pointer
+  // slips off it, until another item is pointed at or something is clicked,
+  // so a shaky hand can see where it was. It used to freeze the colours of
+  // every element the pointer ever crossed, and never let go of them, so the
+  // page slowly filled up with highlighted links and buttons.
   applyStickyHover(active) {
+    const MENU_ITEM = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], ' +
+      '[role="tab"], nav a, nav button, [role="navigation"] a, [role="menu"] a, [role="menubar"] a, ' +
+      '.dropdown-item, .menu-item, .nav-link, li > a';
     try {
       if (active) {
-        this._stickyHoverHandlers.over = (e) => {
+        if (this._stickyHoverHandlers.over) return;
+        let seen = null;   // the item under the pointer, with its hover colours
+        let held = null;   // the item still showing them, with what it had before
+        const release = () => {
+          if (!held) return;
           try {
-            const el = e.target;
-            if (!el || !el.style) return;
-            const cs = window.getComputedStyle(el);
-            el.dataset.accessiflowBg = cs.backgroundColor;
-            el.dataset.accessiflowColor = cs.color;
-          } catch (err) { /* skip */ }
+            held.el.style.backgroundColor = held.bg;
+            held.el.style.color = held.color;
+            held.el.classList.remove('accessiflow-sticky-hover');
+          } catch (err) { /* gone */ }
+          held = null;
+        };
+        const itemOf = el => (el && el.closest && !el.closest('[id^="accessiflow-"]')) ? el.closest(MENU_ITEM) : null;
+        this._stickyHoverHandlers.over = (e) => {
+          const item = itemOf(e.target);
+          if (!item || (seen && seen.el === item)) return;
+          if (held && held.el !== item) release();
+          try {
+            // Read while hovered, so these are the page's hover colours.
+            const cs = window.getComputedStyle(item);
+            seen = { el: item, bg: cs.backgroundColor, color: cs.color };
+          } catch (err) { seen = null; }
         };
         this._stickyHoverHandlers.out = (e) => {
-          try {
-            const el = e.target;
-            if (!el || !el.dataset) return;
-            if (el.dataset.accessiflowBg) {
-              el.style.backgroundColor = el.dataset.accessiflowBg;
-              el.style.color = el.dataset.accessiflowColor;
-              el.classList.add('accessiflow-sticky-hover');
-            }
-          } catch (err) { /* skip */ }
+          const item = itemOf(e.target);
+          if (!item || !seen || seen.el !== item) return;
+          if (e.relatedTarget && item.contains(e.relatedTarget)) return;   // still inside it
+          release();
+          held = { el: item, bg: item.style.backgroundColor, color: item.style.color };
+          item.style.backgroundColor = seen.bg;
+          item.style.color = seen.color;
+          item.classList.add('accessiflow-sticky-hover');
+          seen = null;
         };
+        this._stickyHoverHandlers.release = release;
         document.addEventListener('mouseover', this._stickyHoverHandlers.over);
         document.addEventListener('mouseout', this._stickyHoverHandlers.out);
+        document.addEventListener('click', release, true);
       } else {
         if (this._stickyHoverHandlers.over) {
           document.removeEventListener('mouseover', this._stickyHoverHandlers.over);
           document.removeEventListener('mouseout', this._stickyHoverHandlers.out);
+          document.removeEventListener('click', this._stickyHoverHandlers.release, true);
+          this._stickyHoverHandlers.release();
           this._stickyHoverHandlers = { over: null, out: null };
         }
-        document.querySelectorAll('.accessiflow-sticky-hover').forEach(el => {
-          try {
-            el.style.backgroundColor = '';
-            el.style.color = '';
-            el.classList.remove('accessiflow-sticky-hover');
-          } catch (err) { /* skip */ }
-        });
       }
     } catch (e) { this._warn('applyStickyHover: ' + e.message); }
   }
@@ -442,19 +458,61 @@ class MotorModule {
   // microphone on every site.
 
   // ── 11. Edge Scrolling ────────────────────────────────────
+  // Scrolls while the pointer rests near the top or bottom edge, faster the
+  // nearer it is. It used to scroll five pixels per mouse event, so it only
+  // moved while the hand did, and it switched on smooth scrolling for the
+  // page, which cancelled each small scroll before it began: in practice it
+  // did nothing.
   applyEdgeScrolling(active) {
     try {
       if (active) {
         if (this._edgeScrollHandler) return;
-        this._edgeScrollHandler = (e) => {
-          const margin = 40;
-          const speed = 5;
-          if (e.clientY < margin) window.scrollBy(0, -speed);
-          else if (e.clientY > window.innerHeight - margin) window.scrollBy(0, speed);
+        const MARGIN = 48;
+        const MAX_SPEED = 900;   // px per second, at the very edge
+        let dir = 0;
+        let depth = 0;
+        let frame = null;
+        let last = 0;
+        const tick = t => {
+          frame = null;
+          if (!dir) return;
+          const dt = last ? Math.min(50, t - last) : 16;
+          last = t;
+          const step = dir * Math.max(1, Math.round(MAX_SPEED * depth * dt / 1000));
+          try { window.scrollBy({ top: step, behavior: 'instant' }); } catch (e) { window.scrollBy(0, step); }
+          frame = requestAnimationFrame(tick);
         };
-        document.addEventListener('mousemove', this._edgeScrollHandler);
+        const stop = () => {
+          dir = 0;
+          last = 0;
+          if (frame) { cancelAnimationFrame(frame); frame = null; }
+        };
+        this._edgeScrollHandler = (e) => {
+          const path = e.composedPath ? e.composedPath() : [];
+          // Not over AccessiFlow's own keyboard, which usually sits along the bottom.
+          if (path.some(n => n && n.id && String(n.id).indexOf('accessiflow-') === 0)) { stop(); return; }
+          const h = window.innerHeight;
+          if (e.clientY < MARGIN) { dir = -1; depth = (MARGIN - e.clientY) / MARGIN; }
+          else if (e.clientY > h - MARGIN) { dir = 1; depth = (e.clientY - (h - MARGIN)) / MARGIN; }
+          else { stop(); return; }
+          depth = Math.max(0.15, Math.min(1, depth));
+          if (!frame) frame = requestAnimationFrame(tick);
+        };
+        this._edgeScrollStop = e => { if (!e || !e.relatedTarget) stop(); };
+        document.addEventListener('mousemove', this._edgeScrollHandler, { passive: true });
+        document.addEventListener('mouseout', this._edgeScrollStop);
+        window.addEventListener('blur', this._edgeScrollStop);
+        this._edgeScrollStopNow = stop;
       } else {
-        if (this._edgeScrollHandler) { document.removeEventListener('mousemove', this._edgeScrollHandler); this._edgeScrollHandler = null; }
+        if (this._edgeScrollHandler) {
+          document.removeEventListener('mousemove', this._edgeScrollHandler);
+          document.removeEventListener('mouseout', this._edgeScrollStop);
+          window.removeEventListener('blur', this._edgeScrollStop);
+          if (this._edgeScrollStopNow) this._edgeScrollStopNow();
+          this._edgeScrollHandler = null;
+          this._edgeScrollStop = null;
+          this._edgeScrollStopNow = null;
+        }
       }
     } catch (e) { this._warn('applyEdgeScrolling: ' + e.message); }
   }

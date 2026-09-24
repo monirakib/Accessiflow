@@ -321,6 +321,11 @@
      */
     speak(text, element, opts) {
       if (!text || !text.trim()) return Promise.resolve(false);
+      // Said in passing (what the pointer is resting on): never at the cost
+      // of something longer the user asked to hear. Otherwise moving the
+      // mouse during "read this page" cut the page off mid-sentence and said
+      // a button's name instead, which sounds like speaking at random.
+      if (opts && opts.polite && ((this.isReading && !this._brief) || this._paused)) return Promise.resolve(false);
 
       // Still waiting for Chrome's voice list: hold this rather than say it
       // in the wrong voice.
@@ -512,15 +517,73 @@
       if (said) this.speak(said, element);
     }
 
-    readPage() {
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-      const texts = [];
+    /**
+     * The page as a reader would hear it. It used to take every text node
+     * in <body>, which on most sites includes the contents of <script> and
+     * <style> tags and text the page hides, so Google's homepage, say, was
+     * read out as JavaScript. Now: only what is shown, never AccessiFlow's
+     * own panels, from the main content when the page marks one, and with a
+     * pause between blocks rather than after every link.
+     */
+    readableText(start) {
+      const SKIP = /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|SVG|CANVAS|IFRAME|OBJECT|EMBED|SELECT|OPTION|HEAD|TITLE|META|LINK)$/;
+      const verdict = new Map();   // element -> whether its text is read
+      const readable = el => {
+        if (!el || el.nodeType !== 1) return true;
+        if (verdict.has(el)) return verdict.get(el);
+        let ok = true;
+        if (SKIP.test(el.tagName) || el.getAttribute('aria-hidden') === 'true' || el.hidden ||
+            (el.id && el.id.indexOf('accessiflow-') === 0)) ok = false;
+        else {
+          try {
+            const cs = getComputedStyle(el);
+            if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse') ok = false;
+          } catch (e) { /* ok */ }
+        }
+        if (ok && el.parentElement && el !== start) ok = readable(el.parentElement);
+        verdict.set(el, ok);
+        return ok;
+      };
+      const blockOf = el => {
+        for (let n = el; n && n !== start; n = n.parentElement) {
+          try {
+            const d = getComputedStyle(n).display;
+            if (d !== 'inline' && d !== 'contents' && d.indexOf('inline') !== 0) return n;
+          } catch (e) { return n; }
+        }
+        return start;
+      };
+      const blocks = [];
+      let current = null;
+      let block = null;
+      const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT, null, false);
       let node;
       while ((node = walker.nextNode())) {
-        const t = node.textContent.trim();
-        if (t.length > 2) texts.push(t);
+        const t = node.data.replace(/\s+/g, ' ');
+        if (!t.trim()) {
+          // The space between two inline things ("Your name" and "Email").
+          if (current && readable(node.parentElement)) current.push(' ');
+          continue;
+        }
+        if (!readable(node.parentElement)) continue;
+        const b = blockOf(node.parentElement);
+        if (b !== block || !current) {
+          block = b;
+          current = [];
+          blocks.push(current);
+        }
+        current.push(t);
       }
-      this.speak(texts.join('. '));
+      return blocks.map(parts => parts.join('').replace(/\s+/g, ' ').trim()).filter(Boolean)
+        // A full stop between blocks, so a heading is not run into its paragraph.
+        .map(text => /[.!?।:;]$/.test(text) ? text : text + '.')
+        .join(' ');
+    }
+
+    readPage() {
+      const main = document.querySelector('main, [role="main"]');
+      const from = main && main.textContent.trim().length > 200 ? main : document.body;
+      this.speak(this.readableText(from));
     }
 
     stop() {
@@ -1577,13 +1640,9 @@
             scheduleAutoHeal();
           }
 
-          // Run hearing observer features if active
-          if (currentSettings.captionImages && hearingModule) {
-            hearingModule.toggleCaptionImages(true, node);
-          }
-          if (currentSettings.muteVideos && hearingModule) {
-            hearingModule.toggleMuteVideos(true, node);
-          }
+          // Media labels and muting watch for new videos themselves. Calling
+          // them from here as well started a fresh watcher for every change
+          // to the page, and switching them off stopped only one.
           if (currentSettings.speakImageDescriptions) ImageSpeech.refresh(node);
         } catch (e) { /* suppress observer errors */ }
       });
@@ -1677,6 +1736,11 @@
 
     _announce(node, immediate) {
       if (!ttsEngine || !window.AccessiFlowNaming) return;
+      // AccessiFlow's own keyboard, ring and panels are not the page, and
+      // what the page scrolls under a pointer resting on the ring is not
+      // something the user pointed at.
+      if (node && node.closest && node.closest('[id^="accessiflow-"]')) return;
+      if (!immediate && pointerDial && pointerDial.recentlyActive) return;
 
       const target = window.AccessiFlowNaming.targetFor(node);
       if (!target || target === this._last) return;       // already said
@@ -1684,8 +1748,9 @@
       if (!said) return;
 
       this._last = target;
-      void immediate;
-      ttsEngine.speak(said, target);
+      // Pointing is said in passing and gives way to anything longer being
+      // read; tabbing is deliberate and is said at once.
+      ttsEngine.speak(said, target, immediate ? null : { polite: true });
     }
   };
 
@@ -1970,10 +2035,26 @@
     }
   });
 
-  // TTS: Read selection on mouseup if enabled
-  document.addEventListener('mouseup', () => {
+  // Read what I select: only a selection this press of the mouse made. It
+  // used to read whatever was selected on every mouse button release, so a
+  // click on a button, which leaves a selection in place, read the same
+  // words again: speech out of nowhere, as far as the user could tell.
+  let selectedAtPress = '';
+  document.addEventListener('mousedown', () => {
+    try { selectedAtPress = String(window.getSelection() || '').trim(); } catch (e) { selectedAtPress = ''; }
+  }, true);
+  document.addEventListener('mouseup', e => {
     if (!extensionEnabled || !ttsEngine || !currentSettings.ttsReadOnSelect) return;
-    setTimeout(() => { ttsEngine.readSelection(); }, 100);
+    const path = e.composedPath ? e.composedPath() : [];
+    if (path.some(n => n && n.id && String(n.id).indexOf('accessiflow-') === 0)) return;
+    // Letting go of the hold-click menu is not selecting.
+    if (pointerDial && pointerDial.recentlyActive) return;
+    setTimeout(() => {
+      let now = '';
+      try { now = String(window.getSelection() || '').trim(); } catch (err) { now = ''; }
+      if (!now || now === selectedAtPress) return;
+      ttsEngine.speak(now);
+    }, 100);
   });
 
   function announceShortcut(key) {

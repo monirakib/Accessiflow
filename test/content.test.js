@@ -742,6 +742,57 @@ const press = (key, opts) => doc.dispatchEvent(
       'and this site\'s own exception wins over the setup');
   }
 
+  // ── Read this page: what is shown, and never the page's code ─────────────
+  // It used to read every text node in <body>, script and style contents
+  // included, which on real sites meant JavaScript read out loud.
+  {
+    const main = doc.querySelector('main');
+    const script = doc.createElement('script');
+    script.textContent = 'var secretCode = 42;';
+    const style = doc.createElement('style');
+    style.textContent = '.x { color: red; }';
+    const hidden = doc.createElement('p');
+    hidden.textContent = 'Hidden words';
+    hidden.style.display = 'none';
+    main.append(script, style, hidden);
+    await send({ action: 'applySettings', data: {} });
+    spoken.length = 0;
+    press('R', { altKey: true, shiftKey: true, code: 'KeyR' });
+    await settle();
+    const heard = spoken.map(u => u.text).join(' ');
+    check(heard.length > 20 && !/secretCode|color: red|Hidden words/.test(heard),
+      'reading the page aloud reads what is shown, never scripts, styles or hidden text: ' + heard.slice(0, 60));
+    press('S', { altKey: true, shiftKey: true, code: 'KeyS' });
+    script.remove(); style.remove(); hidden.remove();
+  }
+
+  // ── Read what I select: a new selection, once ────────────────────────────
+  {
+    await send({ action: 'applySettings', data: { ttsReadOnSelect: true } });
+    const words = doc.createElement('p');
+    words.textContent = 'Fees are due by the end of the month.';
+    doc.querySelector('main').appendChild(words);
+    doc.getSelection().removeAllRanges();
+    spoken.length = 0;
+    doc.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+    const range = doc.createRange();
+    range.selectNodeContents(words);
+    doc.getSelection().addRange(range);
+    doc.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true }));
+    await settle();
+    check(spoken.length === 1, 'a selection made with the mouse is read: ' + spoken.length);
+    spoken.length = 0;
+    // A click on something that leaves the selection where it was.
+    doc.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+    doc.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true }));
+    await settle();
+    check(spoken.length === 0, 'and a later click that leaves it in place does not read it again: ' + spoken.length);
+    doc.getSelection().removeAllRanges();
+    words.remove();
+    press('S', { altKey: true, shiftKey: true, code: 'KeyS' });
+    await send({ action: 'applySettings', data: {} });
+  }
+
   // ── The hold-click menu and the keyboard follow the setup ────────────────
   {
     window.chrome.storage.local.set({ accessiflow_setup: { v: 1, needs: [], settings: { holdDial: true, onScreenKeyboard: true } } });

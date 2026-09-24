@@ -236,6 +236,73 @@ behind and half worked, which is why one tab behaved differently from the
 next. The old copy now notices it has been cut off as soon as the tab is looked
 at or clicked, clears itself away, and says to reload the page.
 
+### Speaking only when asked
+
+Testers heard AccessiFlow speak "at random". Every case had a cause, found by
+recording every sentence spoken during a scripted session in real Chrome, with
+what the user had just done:
+
+- **Reading the page read its code.** *Read this page aloud* took every text
+  node in `<body>`, including the contents of `<script>` and `<style>` and text
+  the page hides, so a site like Google's was read out as JavaScript. It now
+  reads what is shown, from the main content when the page marks one, never
+  AccessiFlow's own panels, with a pause between blocks.
+- **Read what I select read the same words again and again.** It read the
+  selection on every release of the mouse button, and a click on a button
+  leaves a selection in place, so every click read it once more. It now reads
+  only a selection that press made.
+- **Pointing talked over reading.** Every new sentence stopped the last, so
+  with *Read what I point at* on, moving the mouse during a page being read cut
+  it off for a button's name. Pointing now gives way to anything longer, and
+  never names AccessiFlow's own keyboard or ring.
+- **Holding for the ring selected text.** Chrome goes on extending a mouse
+  selection underneath the ring, and settles it after the button comes up, so
+  the text dragged across ended up selected, and read. The selection is put
+  back as the ring is used and once more after the release, and a choice made
+  on the ring runs after that, so Select all is not undone by it.
+- **"Time for a break" from tabs nobody was looking at.** Each tab ran its own
+  break reminder and focus timer from when it loaded, restarted on every
+  setting change. Both are now one timer for the browser, kept in storage,
+  shown and said once by the tab in front; the focus timer's count is the same
+  in every tab, and it no longer flashes its border.
+
+### Settings that did not do what they said
+
+Every setting was switched on and off in turn on a test page in real Chrome,
+recording what changed, what was left behind, what was said and any errors.
+No setting threw an error or spoke by itself; these did not keep their word:
+
+- *One question at a time* numbered the fields and showed them all. It now
+  shows one question, with *Question 2 of 5*, Back and Next, a radio group as
+  one question, and does not move on from a required answer left empty.
+- *Dim everything else* put a glow round the focused control and dimmed
+  nothing. It now darkens the page round the paragraph under the pointer, or
+  what the keyboard is on.
+- *Label audio content* wrote each picture's description underneath it. It
+  now labels every video and sound clip with whether it has captions.
+- *Simplify the page* skipped everything inside `<main>`, where most sites put
+  their sidebars and adverts, so it usually did nothing.
+- *Pause moving content* paused only video and sound; it now also presses a
+  carousel's own pause button and freezes animation inside carousels.
+- *Scroll at the edges* switched on smooth scrolling, which cancelled each of
+  its own small scrolls, and moved only while the mouse did. It now keeps going
+  while the pointer rests at an edge, faster nearer the edge.
+- *Bangla numerals* marked what it changed and never cleared the marks, so
+  after any other setting changed the numbers stayed in English; it changed
+  only the first number in each element; and it turned "the sun", "she sat"
+  and "you may" into Bangla. Short month and day names now change only beside
+  a number.
+- Left behind after being switched off: *Number the lines* (every paragraph
+  repositioned), *Bangla form labels* (placeholders), *Explain tone* (the
+  page's own tooltips wiped), the break reminder (its dark backdrop), and
+  *Label audio content* and *Mute all video*, which started a new watcher each
+  time the page changed and stopped only the last.
+- *Hold menu colours* froze the colours of everything the pointer crossed. It
+  now holds only the last menu item. *Icon size* scaled anything with "icon"
+  in its class name, whole sections included, and now scales only icons.
+- *Explain hard words* sends the double-clicked word to dictionaryapi.dev,
+  which the privacy policy did not mention; it does now.
+
 ## Layout
 
 ```
@@ -575,7 +642,7 @@ the clinical term kept in the search keywords so both audiences find it.
 
 ```bash
 cd server && npm install && npm test          # the proxy
-cd test   && npm install && npm test          # 23 jsdom suites
+cd test   && npm install && npm test          # 24 jsdom suites
 cd test   && npm run test:browser             # real Chrome, extension installed
 ```
 

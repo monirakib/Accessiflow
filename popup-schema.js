@@ -133,7 +133,7 @@ const SCHEMA = {
         { id: 'highlightLinks', type: 'switch', label: 'Highlight links', desc: 'Give every link a strong colour and underline.', wcag: '1.4.1', keywords: 'underline visible anchors' },
         { id: 'hideImages', type: 'switch', label: 'Hide images', desc: 'Remove pictures and leave only the text.', wcag: '1.4.8', keywords: 'pictures declutter text only' },
         { id: 'readingGuide', type: 'switch', label: 'Reading guide', desc: 'Show a band under your pointer to keep your place.', wcag: '2.4.8', keywords: 'ruler track place', conflictsWith: ['readingMask'] },
-        { id: 'focusMode', type: 'switch', label: 'Dim everything else', desc: 'Darken the page except the part you are reading.', wcag: '2.4.8', keywords: 'spotlight dim concentrate' },
+        { id: 'focusMode', type: 'switch', label: 'Dim everything else', desc: 'Darken the page except the paragraph under your pointer, or the item you have tabbed to.', wcag: '2.4.8', keywords: 'spotlight dim concentrate darken', conflictsWith: ['readingMask'] },
         { id: 'magnifier', type: 'switch', label: 'Magnifier', desc: 'Show a zoomed circle that follows your pointer.', wcag: '1.4.4', keywords: 'zoom loupe enlarge' },
         { id: 'magnifierZoom', type: 'slider', label: 'Magnifier strength', desc: 'How much the magnifier zooms in.', min: 1.5, max: 5, step: 0.5, default: 2, suffix: '×', wcag: '1.4.4', keywords: 'zoom level', dependsOn: 'magnifier' },
         { id: 'bionicReading', type: 'switch', label: 'Bold word starts', desc: 'Thicken the first letters of each word to speed up reading.', wcag: '1.4.8', keywords: 'bionic fixation skim' },
@@ -147,7 +147,7 @@ const SCHEMA = {
       label: 'Reading and understanding',
       desc: 'Simpler pages, fewer distractions, memory help.',
       controls: [
-        { id: 'simplifyPage', type: 'switch', label: 'Simplify the page', desc: 'Strip the page back to its headings and text.', wcag: '3.1.5', keywords: 'reader mode declutter clean plain' },
+        { id: 'simplifyPage', type: 'switch', label: 'Simplify the page', desc: 'Hide sidebars, adverts, banners and share buttons, so the main text is all that is left.', wcag: '3.1.5', keywords: 'reader mode declutter clean plain' },
         { id: 'distractionFree', type: 'switch', label: 'Hide distractions', desc: 'Remove ads, pop-ups and sidebars.', wcag: '2.2.4', keywords: 'ads popups banners clutter' },
         { id: 'readingMask', type: 'switch', label: 'Reading lens', desc: 'Darken the page except the line you are reading. The lens follows the text itself, not just the pointer. Alt+Shift+K holds it still.', wcag: '2.4.8', keywords: 'focus band strip mask lens dim spotlight darken concentrate line place lose my place dyslexia' },
         { id: 'maskMode', type: 'select', label: 'How much to show', desc: 'How much text the lens uncovers at once.', default: 'line', wcag: '2.4.8', keywords: 'line sentence paragraph amount size', dependsOn: 'readingMask', options: [
@@ -165,9 +165,9 @@ const SCHEMA = {
         { id: 'lineRuler', type: 'switch', label: 'Line ruler', desc: 'Show a straight line to read along.', wcag: '2.4.8', keywords: 'guide track straightedge', conflictsWith: ['readingMask'] },
         { id: 'readingProgress', type: 'switch', label: 'Progress bar', desc: 'Show how far through the page you are.', wcag: '2.4.8', keywords: 'scroll position how far' },
         { id: 'showHeadings', type: 'switch', label: 'Outline the headings', desc: 'Mark each heading so the page structure is obvious.', wcag: '2.4.10', keywords: 'structure outline sections' },
-        { id: 'altTextTooltips', type: 'switch', label: 'Show image descriptions', desc: 'Display each picture’s description underneath it.', wcag: '1.1.1', keywords: 'alt text captions pictures' },
+        { id: 'altTextTooltips', type: 'switch', label: 'Show image descriptions', desc: 'Show a picture’s description beside the pointer when you point at it, or say that it has none.', wcag: '1.1.1', keywords: 'alt text captions pictures' },
         { id: 'dictionary', type: 'switch', label: 'Explain hard words', desc: 'Look up a word when you double-click it.', wcag: '3.1.3', keywords: 'definition meaning vocabulary' },
-        { id: 'pauseMedia', type: 'switch', label: 'Pause moving content', desc: 'Stop sliders and carousels from moving on their own.', wcag: '2.2.2', keywords: 'carousel slider autoplay stop' },
+        { id: 'pauseMedia', type: 'switch', label: 'Pause moving content', desc: 'Pause videos and sound, and stop sliders and carousels wherever the page allows it.', wcag: '2.2.2', keywords: 'carousel slider autoplay stop video pause' },
         { id: 'formSteps', type: 'switch', label: 'One question at a time', desc: 'Break long forms into single steps.', wcag: '3.3.2', keywords: 'forms wizard steps long' },
         { id: 'activeFieldHighlight', type: 'switch', label: 'Highlight the current box', desc: 'Make the form field you are typing in stand out.', wcag: '2.4.11', keywords: 'form input focus where am i' },
         { id: 'memoryAid', type: 'switch', label: 'Remember what I filled in', desc: 'Keep a note of what you typed in case the page reloads.', wcag: '3.3.7', keywords: 'redundant entry autofill remember' },
@@ -306,7 +306,7 @@ const SCHEMA = {
         { id: 'soundVisualization', type: 'switch', label: 'Show sound levels', desc: 'A meter of how loud the tab is, left and right. Works while live captions are running.', wcag: '1.2.1', keywords: 'waveform meter audio visual level loud' },
         { id: 'liveTranscription', type: 'switch', label: 'Transcribe my microphone', desc: 'Write out what is said near you, using the browser\u2019s speech service. For the sound of a tab, use live captions below.', wcag: '1.2.4', keywords: 'transcribe speech to text realtime microphone room conversation' },
         { id: 'muteVideos', type: 'switch', label: 'Mute all video', desc: 'Silence every video on the page.', wcag: '1.4.2', keywords: 'silence quiet sound off' },
-        { id: 'captionImages', type: 'switch', label: 'Label audio content', desc: 'Mark audio and video so nothing is missed.', wcag: '1.2.1', keywords: 'audio icon marker' }
+        { id: 'captionImages', type: 'switch', label: 'Label audio content', desc: 'Put a label on every video and sound clip saying whether it has captions, before you press play.', wcag: '1.2.1', keywords: 'audio icon marker' }
       ],
       actions: [
         { id: 'btnCaptionsStart', label: 'Start live captions for this tab', style: 'primary' },

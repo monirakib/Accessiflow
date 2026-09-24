@@ -30,63 +30,80 @@ class HearingModule {
   _log(msg) { console.log('[AccessiFlow][Hearing] ' + msg); }
   _warn(msg) { console.warn('[AccessiFlow][Hearing] ' + msg); }
 
-  // ── 1. Caption images ────────────────────────────────────
-  _captionImage(img) {
+  /**
+   * One watcher for videos and sound added later, shared by the labels and
+   * muting. Each used to start a new watcher every time the page added
+   * anything, and switching the feature off stopped only the last one, so the
+   * others went on labelling and muting.
+   */
+  _watchMedia() {
+    const wanted = this._labelsOn || this._muteOn;
+    if (wanted && !this._mediaObserver) {
+      this._mediaObserver = new MutationObserver(muts => {
+        muts.forEach(m => m.addedNodes.forEach(n => {
+          if (n.nodeType !== 1) return;
+          const found = n.matches && n.matches('video, audio, iframe') ? [n]
+            : (n.querySelectorAll ? Array.from(n.querySelectorAll('video, audio, iframe')) : []);
+          found.forEach(el => {
+            if (this._labelsOn) this._labelMedia(el);
+            if (this._muteOn && el.tagName === 'VIDEO') this._muteVideo(el);
+          });
+        }));
+      });
+      this._mediaObserver.observe(document.body, { childList: true, subtree: true });
+    } else if (!wanted && this._mediaObserver) {
+      this._mediaObserver.disconnect();
+      this._mediaObserver = null;
+    }
+  }
+
+  // ── 1. Label audio content ───────────────────────────────
+  //
+  // A label before each video and sound clip saying whether it has captions,
+  // so someone who cannot hear it knows before pressing play whether they
+  // will be able to follow it, and where to get captions when it has none.
+  // (This used to write each picture's description underneath it instead,
+  // which is not what the setting said it did.)
+  _labelMedia(el) {
     try {
-      if (img.getAttribute('data-accessiflow-captioned')) return;
-      const alt = img.getAttribute('alt');
-      if (!alt || !alt.trim()) return;
-
-      const figcaption = document.createElement('figcaption');
-      figcaption.textContent = alt;
-      figcaption.setAttribute('data-accessiflow-caption', 'true');
-      figcaption.style.cssText = 'font-style:italic;font-size:12px;text-align:center;color:#555;padding:4px 0;font-family:system-ui,sans-serif;';
-
-      const existingFigure = img.closest('figure');
-      if (existingFigure) {
-        existingFigure.appendChild(figcaption);
-        this._captionedImgs.push({ img, figcaption, figure: null });
+      if (!this._labelled) this._labelled = new WeakSet();
+      if (this._labelled.has(el) || !el.parentNode || el.closest('[id^="accessiflow-"]')) return;
+      let text;
+      if (el.tagName === 'IFRAME') {
+        const src = el.getAttribute('src') || '';
+        if (!/youtube\.com|youtube-nocookie\.com|youtu\.be|vimeo\.com|dailymotion\.com|facebook\.com\/plugins\/video|player\./i.test(src)) return;
+        text = 'Embedded video: look for its own CC button. Alt+Shift+W gives live captions.';
       } else {
-        const figure = document.createElement('figure');
-        figure.style.cssText = 'margin:0;padding:0;display:inline-block;';
-        figure.setAttribute('data-accessiflow-figure', 'true');
-        img.parentNode.insertBefore(figure, img);
-        figure.appendChild(img);
-        figure.appendChild(figcaption);
-        this._captionedImgs.push({ img, figcaption, figure });
+        // Background sound with no controls is not something to follow.
+        if (el.tagName === 'AUDIO' && !el.controls) return;
+        const captions = Array.from(el.querySelectorAll('track')).some(t => /^(captions|subtitles)$/i.test(t.kind || 'subtitles'));
+        const what = el.tagName === 'VIDEO' ? 'Video' : 'Sound clip';
+        text = captions ? what + ' with captions.' : what + ' without captions. Alt+Shift+W gives live captions.';
       }
-      img.setAttribute('data-accessiflow-captioned', 'true');
-    } catch (e) { this._warn('_captionImage: ' + e.message); }
+      const label = document.createElement('div');
+      label.setAttribute('data-accessiflow-media-label', 'true');
+      label.setAttribute('role', 'note');
+      label.style.cssText = 'display:block !important;width:max-content !important;max-width:100% !important;box-sizing:border-box !important;' +
+        'margin:4px 0 !important;padding:3px 8px !important;font:600 13px/1.35 system-ui,"Segoe UI",sans-serif !important;' +
+        'color:#111 !important;background:#ffd400 !important;border:2px solid #111 !important;border-radius:6px !important;';
+      label.textContent = text;
+      el.parentNode.insertBefore(label, el);
+      this._labelled.add(el);
+      this._captionedImgs.push({ figcaption: label });
+    } catch (e) { this._warn('_labelMedia: ' + e.message); }
   }
 
   toggleCaptionImages(active) {
     try {
+      this._labelsOn = Boolean(active);
       if (active) {
-        document.querySelectorAll('img').forEach(img => this._captionImage(img));
-        this._captionObserver = new MutationObserver((muts) => {
-          muts.forEach(m => {
-            m.addedNodes.forEach(n => {
-              if (n.nodeType !== 1) return;
-              if (n.matches && n.matches('img')) this._captionImage(n);
-              if (n.querySelectorAll) n.querySelectorAll('img').forEach(img => this._captionImage(img));
-            });
-          });
-        });
-        this._captionObserver.observe(document.body, { childList: true, subtree: true });
+        document.querySelectorAll('video, audio, iframe').forEach(el => this._labelMedia(el));
       } else {
-        if (this._captionObserver) { this._captionObserver.disconnect(); this._captionObserver = null; }
-        this._captionedImgs.forEach(({ img, figcaption, figure }) => {
-          try {
-            img.removeAttribute('data-accessiflow-captioned');
-            figcaption.remove();
-            if (figure) {
-              figure.parentNode.insertBefore(img, figure);
-              figure.remove();
-            }
-          } catch (err) { /* skip */ }
-        });
+        this._captionedImgs.forEach(({ figcaption }) => { try { figcaption.remove(); } catch (err) { /* skip */ } });
         this._captionedImgs = [];
+        this._labelled = new WeakSet();
       }
+      this._watchMedia();
     } catch (e) { this._warn('toggleCaptionImages: ' + e.message); }
   }
 
@@ -103,68 +120,73 @@ class HearingModule {
       badge.textContent = 'MUTED';
       badge.setAttribute('aria-hidden', 'true');
       badge.setAttribute('data-accessiflow-mute-badge', 'true');
-      badge.style.cssText = 'position:absolute;top:8px;right:8px;background:rgba(239,68,68,0.9);color:#fff;padding:4px 10px;border-radius:4px;font-size:12px;font-weight:bold;z-index:10;font-family:system-ui,sans-serif;';
+      badge.style.cssText = 'position:absolute;top:8px;right:8px;background:rgba(185,28,28,0.95);color:#fff;padding:4px 10px;border-radius:4px;font-size:12px;font-weight:bold;z-index:10;font-family:system-ui,sans-serif;pointer-events:none;';
 
       const parent = video.parentElement;
+      let positioned = null;
       if (parent) {
         const pos = window.getComputedStyle(parent).position;
-        if (pos === 'static') parent.style.position = 'relative';
+        // Put back afterwards: the badge needs it, the page did not ask for it.
+        if (pos === 'static') { positioned = parent.style.position; parent.style.position = 'relative'; }
         parent.appendChild(badge);
       }
-      this._mutedVideos.push({ video, badge, wasMuted });
+      this._mutedVideos.push({ video, badge, wasMuted, parent, positioned });
     } catch (e) { this._warn('_muteVideo: ' + e.message); }
   }
 
   toggleMuteVideos(active) {
     try {
+      this._muteOn = Boolean(active);
       if (active) {
         document.querySelectorAll('video').forEach(v => this._muteVideo(v));
-        this._muteObserver = new MutationObserver((muts) => {
-          muts.forEach(m => {
-            m.addedNodes.forEach(n => {
-              if (n.nodeType !== 1) return;
-              if (n.matches && n.matches('video')) this._muteVideo(n);
-              if (n.querySelectorAll) n.querySelectorAll('video').forEach(v => this._muteVideo(v));
-            });
-          });
-        });
-        this._muteObserver.observe(document.body, { childList: true, subtree: true });
       } else {
-        if (this._muteObserver) { this._muteObserver.disconnect(); this._muteObserver = null; }
-        this._mutedVideos.forEach(({ video, badge, wasMuted }) => {
+        this._mutedVideos.forEach(({ video, badge, wasMuted, parent, positioned }) => {
           try {
             video.muted = wasMuted;
             video.removeAttribute('data-accessiflow-muted');
             badge.remove();
+            if (parent && positioned !== null) parent.style.position = positioned;
           } catch (err) { /* skip */ }
         });
         this._mutedVideos = [];
       }
+      this._watchMedia();
     } catch (e) { this._warn('toggleMuteVideos: ' + e.message); }
   }
 
   // ── 3. Closed caption support ────────────────────────────
-  addClosedCaptionSupport() {
+  // What was changed is remembered here rather than marked on the video. A
+  // mark left behind after a settings change (which switches everything off
+  // and on again) made it skip every video it had already seen.
+  addClosedCaptionSupport(showBadge) {
     try {
-      document.querySelectorAll('video:not([data-accessiflow-cc-checked])').forEach(video => {
+      if (!this._ccChecked) this._ccChecked = new WeakSet();
+      if (!this._ccTracks) this._ccTracks = [];
+      document.querySelectorAll('video').forEach(video => {
         try {
-          video.setAttribute('data-accessiflow-cc-checked', 'true');
+          if (this._ccChecked.has(video)) return;
+          this._ccChecked.add(video);
           const track = video.querySelector('track[kind="subtitles"], track[kind="captions"]');
           if (track) {
-            // Enable existing track
-            track.mode = 'showing';
-            if (track.track) track.track.mode = 'showing';
-          } else {
+            // Enable existing track, and remember how it was.
+            if (track.track) {
+              this._ccTracks.push({ track: track.track, mode: track.track.mode });
+              track.track.mode = 'showing';
+            }
+          } else if (showBadge) {
             // Inject warning badge
             const badge = document.createElement('div');
             badge.textContent = 'No captions available';
             badge.setAttribute('aria-hidden', 'true');
             badge.setAttribute('data-accessiflow-cc-badge', 'true');
-            badge.style.cssText = 'position:absolute;bottom:8px;left:8px;background:rgba(245,158,11,0.9);color:#000;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:bold;z-index:10;font-family:system-ui,sans-serif;';
+            badge.style.cssText = 'position:absolute;bottom:8px;left:8px;background:rgba(245,158,11,0.95);color:#000;padding:4px 10px;border-radius:4px;font-size:12px;font-weight:bold;z-index:10;font-family:system-ui,sans-serif;pointer-events:none;';
             const parent = video.parentElement;
             if (parent) {
               const pos = window.getComputedStyle(parent).position;
-              if (pos === 'static') parent.style.position = 'relative';
+              if (pos === 'static') {
+                this._ccPositioned = (this._ccPositioned || []).concat([{ el: parent, position: parent.style.position }]);
+                parent.style.position = 'relative';
+              }
               parent.appendChild(badge);
               this._captionBadges.push(badge);
             }
@@ -172,6 +194,18 @@ class HearingModule {
         } catch (err) { /* skip */ }
       });
     } catch (e) { this._warn('addClosedCaptionSupport: ' + e.message); }
+  }
+
+  _removeClosedCaptionSupport() {
+    this._captionBadges.forEach(b => { try { b.remove(); } catch (e) { /* skip */ } });
+    this._captionBadges = [];
+    (this._ccTracks || []).forEach(({ track, mode }) => { try { track.mode = mode; } catch (e) { /* skip */ } });
+    this._ccTracks = [];
+    (this._ccPositioned || []).forEach(({ el, position }) => { try { el.style.position = position; } catch (e) { /* skip */ } });
+    this._ccPositioned = [];
+    this._ccChecked = new WeakSet();
+    // Marks an older version left on the page.
+    document.querySelectorAll('[data-accessiflow-cc-checked]').forEach(v => v.removeAttribute('data-accessiflow-cc-checked'));
   }
 
   // ── 4. Real-Time Transcription ─────────────────────────────
@@ -653,11 +687,10 @@ class HearingModule {
     try {
       this.toggleCaptionImages(!!settings.captionImages);
       this.toggleMuteVideos(!!settings.muteVideos);
-      // "Turn captions on" used to be read by nothing; caption tracks were
-      // switched on only as a side effect of two unrelated settings.
-      if (settings.closedCaptions || settings.captionImages || settings.muteVideos) {
-        this.addClosedCaptionSupport();
-      }
+      // Its own setting only. It used to run for muting and labelling too,
+      // and with Label audio content on, a video got two notices that it has
+      // no captions; the label says it, so the badge is left out then.
+      if (settings.closedCaptions) this.addClosedCaptionSupport(!settings.captionImages);
       this.applyTranscription(!!settings.liveTranscription);
       this.applySoundMeter(!!settings.soundVisualization);
       this.applySoundCues(!!settings.visualAlerts, settings);
@@ -671,8 +704,7 @@ class HearingModule {
     try {
       this.toggleCaptionImages(false);
       this.toggleMuteVideos(false);
-      this._captionBadges.forEach(b => { try { b.remove(); } catch (e) { /* skip */ } });
-      this._captionBadges = [];
+      this._removeClosedCaptionSupport();
       this.applyTranscription(false);
       this.applySoundMeter(false);
       this.applySoundCues(false);

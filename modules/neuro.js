@@ -65,90 +65,126 @@ class NeuroModule {
   }
 
   // ── Focus Timer / Pomodoro ────────────────────────────────
+  //
+  // One timer for the whole browser. Each tab used to count down from when
+  // it loaded, restart whenever a setting changed, and say "Time for a break"
+  // when its own count ran out, so with several tabs open the break was
+  // announced at unpredictable moments, from tabs nobody was looking at. The
+  // start time is kept in storage: every tab shows the same count, pausing in
+  // one pauses all, and the break is said once, by the tab being looked at.
   applyFocusTimer(active, minutes) {
+    const KEY = 'accessiflow_focus_timer';
     try {
-      if (active) {
-        if (this._focusTimerEl) return;
-        const duration = (minutes || 25) * 60;
-        let remaining = duration;
-
-        const el = document.createElement('div');
-        el.id = 'accessiflow-focus-timer';
-        el.setAttribute('role', 'timer');
-        el.setAttribute('aria-label', 'Focus timer');
-        el.setAttribute('aria-live', 'off');
-        el.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483640;background:#16181f;border:2px solid #4fffb0;border-radius:12px;padding:8px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,0.5);font-family:system-ui,sans-serif;';
-
-        const timeDisplay = document.createElement('span');
-        timeDisplay.style.cssText = 'color:#4fffb0;font-size:24px;font-weight:bold;font-variant-numeric:tabular-nums;min-width:80px;text-align:center;';
-        const formatTime = (s) => Math.floor(s / 60).toString().padStart(2, '0') + ':' + (s % 60).toString().padStart(2, '0');
-        timeDisplay.textContent = formatTime(remaining);
-
-        const progress = document.createElement('div');
-        progress.style.cssText = 'width:100px;height:6px;background:#2a2d35;border-radius:3px;overflow:hidden;';
-        const progressBar = document.createElement('div');
-        progressBar.style.cssText = 'width:100%;height:100%;background:#4fffb0;border-radius:3px;transition:width 1s linear;';
-        progress.appendChild(progressBar);
-
-        const pauseBtn = document.createElement('button');
-        pauseBtn.type = 'button';
-        pauseBtn.textContent = '⏸';
-        pauseBtn.setAttribute('aria-label', 'Pause timer');
-        pauseBtn.style.cssText = 'width:32px;height:32px;background:#2a2d35;border:none;border-radius:6px;color:#e0e0e0;font-size:16px;cursor:pointer;';
-        let paused = false;
-
-        const closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.textContent = '✕';
-        closeBtn.setAttribute('aria-label', 'Close timer');
-        closeBtn.style.cssText = 'width:32px;height:32px;background:#ef4444;border:none;border-radius:6px;color:#fff;font-size:14px;cursor:pointer;font-weight:bold;';
-        closeBtn.addEventListener('click', () => { this.applyFocusTimer(false); });
-
-        pauseBtn.addEventListener('click', () => {
-          paused = !paused;
-          pauseBtn.textContent = paused ? '▶' : '⏸';
-          pauseBtn.setAttribute('aria-label', paused ? 'Resume timer' : 'Pause timer');
-        });
-
-        el.appendChild(timeDisplay);
-        el.appendChild(progress);
-        el.appendChild(pauseBtn);
-        el.appendChild(closeBtn);
-        document.body.appendChild(el);
-        this._focusTimerEl = el;
-
-        this._focusTimerInterval = setInterval(() => {
-          if (paused) return;
-          remaining--;
-          timeDisplay.textContent = formatTime(Math.max(0, remaining));
-          progressBar.style.width = ((remaining / duration) * 100) + '%';
-
-          if (remaining <= 0) {
-            clearInterval(this._focusTimerInterval);
-            this._focusTimerInterval = null;
-            el.style.borderColor = '#f59e0b';
-            timeDisplay.style.color = '#f59e0b';
-            timeDisplay.textContent = 'BREAK!';
-            progressBar.style.width = '0%';
-
-            // Announce break
-            if (typeof window.AccessiFlowSpeak === 'function') {
-              window.AccessiFlowSpeak('Time for a break! Well done.');
-            }
-
-            // Flash border
-            let flash = 0;
-            const flashInterval = setInterval(() => {
-              el.style.borderColor = flash % 2 === 0 ? '#f59e0b' : '#4fffb0';
-              flash++;
-              if (flash > 10) clearInterval(flashInterval);
-            }, 500);
-          }
-        }, 1000);
-      } else {
+      if (!active) {
         if (this._focusTimerInterval) { clearInterval(this._focusTimerInterval); this._focusTimerInterval = null; }
         if (this._focusTimerEl) { this._focusTimerEl.remove(); this._focusTimerEl = null; }
+        if (this._focusTimerSync) {
+          try { chrome.storage.onChanged.removeListener(this._focusTimerSync); } catch (e) { /* ok */ }
+          this._focusTimerSync = null;
+        }
+        return;
       }
+      if (this._focusTimerEl) return;
+      const length = Math.max(1, Number(minutes) || 25);
+      const duration = length * 60;
+      let state = null;
+      const save = next => {
+        state = next;
+        try { chrome.storage.local.set({ [KEY]: next }); } catch (e) { /* kept on this page */ }
+        render();
+      };
+      const fresh = () => ({ start: Date.now(), minutes: length, pausedAt: null, announced: null });
+
+      const el = document.createElement('div');
+      el.id = 'accessiflow-focus-timer';
+      el.setAttribute('role', 'timer');
+      el.setAttribute('aria-label', 'Focus timer');
+      el.setAttribute('aria-live', 'off');
+      el.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483640;background:#16181f;border:2px solid #4fffb0;border-radius:12px;padding:8px 14px 8px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,0.5);font-family:system-ui,sans-serif;';
+
+      const timeDisplay = document.createElement('span');
+      timeDisplay.style.cssText = 'color:#4fffb0;font-size:24px;font-weight:bold;font-variant-numeric:tabular-nums;min-width:80px;text-align:center;';
+      const formatTime = s => Math.floor(s / 60).toString().padStart(2, '0') + ':' + (s % 60).toString().padStart(2, '0');
+
+      const progress = document.createElement('div');
+      progress.style.cssText = 'width:100px;height:6px;background:#2a2d35;border-radius:3px;overflow:hidden;';
+      const progressBar = document.createElement('div');
+      progressBar.style.cssText = 'width:100%;height:100%;background:#4fffb0;border-radius:3px;';
+      progress.appendChild(progressBar);
+
+      const button = (label, text) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = text;
+        b.setAttribute('aria-label', label);
+        b.title = label;
+        b.style.cssText = 'min-width:36px;height:36px;padding:0 10px;background:#2a2d35;border:1px solid #555c69;border-radius:8px;color:#e0e0e0;font:600 14px system-ui,sans-serif;cursor:pointer;';
+        return b;
+      };
+      const pauseBtn = button('Pause timer', 'Pause');
+      const againBtn = button('Start a new focus stretch', 'Start again');
+      const closeBtn = button('Hide the timer on this page', '✕');
+
+      pauseBtn.addEventListener('click', () => {
+        if (!state) return;
+        if (state.pausedAt) save(Object.assign({}, state, { start: state.start + (Date.now() - state.pausedAt), pausedAt: null }));
+        else save(Object.assign({}, state, { pausedAt: Date.now() }));
+      });
+      againBtn.addEventListener('click', () => save(fresh()));
+      closeBtn.addEventListener('click', () => {
+        if (this._focusTimerInterval) { clearInterval(this._focusTimerInterval); this._focusTimerInterval = null; }
+        el.remove();
+      });
+
+      el.append(timeDisplay, progress, pauseBtn, againBtn, closeBtn);
+      document.body.appendChild(el);
+      this._focusTimerEl = el;
+
+      const render = () => {
+        if (!state) return;
+        const now = state.pausedAt || Date.now();
+        const remaining = Math.max(0, Math.ceil(duration - (now - state.start) / 1000));
+        progressBar.style.width = ((remaining / duration) * 100) + '%';
+        pauseBtn.textContent = state.pausedAt ? 'Resume' : 'Pause';
+        pauseBtn.setAttribute('aria-label', state.pausedAt ? 'Resume timer' : 'Pause timer');
+        if (remaining > 0) {
+          timeDisplay.textContent = formatTime(remaining);
+          timeDisplay.style.color = '#4fffb0';
+          el.style.borderColor = '#4fffb0';
+          pauseBtn.hidden = false;
+          againBtn.hidden = true;
+          return;
+        }
+        timeDisplay.textContent = 'Break';
+        timeDisplay.style.color = '#f59e0b';
+        el.style.borderColor = '#f59e0b';
+        pauseBtn.hidden = true;
+        againBtn.hidden = false;
+        // Said once for this stretch, by the tab in front of the user.
+        if (state.announced !== state.start && !document.hidden && document.hasFocus()) {
+          save(Object.assign({}, state, { announced: state.start }));
+          if (typeof window.AccessiFlowSpeak === 'function') {
+            window.AccessiFlowSpeak('Time for a break. Well done.');
+          }
+        }
+      };
+
+      const load = () => {
+        try {
+          chrome.storage.local.get(KEY, data => {
+            const stored = data && data[KEY];
+            // A new length, or a timer never started, begins a new stretch.
+            if (!stored || stored.minutes !== length) save(fresh());
+            else { state = stored; render(); }
+          });
+        } catch (e) { save(fresh()); }
+      };
+      this._focusTimerSync = (changes, area) => {
+        if (area === 'local' && changes[KEY] && changes[KEY].newValue) { state = changes[KEY].newValue; render(); }
+      };
+      try { chrome.storage.onChanged.addListener(this._focusTimerSync); } catch (e) { /* ok */ }
+      load();
+      this._focusTimerInterval = setInterval(render, 1000);
     } catch (e) { this._warn('applyFocusTimer: ' + e.message); }
   }
 
@@ -322,35 +358,58 @@ class NeuroModule {
           'barking up the wrong tree': 'Meaning: Making a mistake / wrong assumption.'
         };
 
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+        Object.assign(idioms, {
+          'raining cats and dogs': 'Meaning: Raining very heavily.',
+          'over the moon': 'Meaning: Very happy.',
+          'a blessing in disguise': 'Meaning: Something that seemed bad but turned out good.',
+          'call it a day': 'Meaning: Stop working for now.',
+          'cut corners': 'Meaning: Do something badly to save time or money.',
+          'get out of hand': 'Meaning: Get out of control.',
+          'hang in there': 'Meaning: Keep going; do not give up.',
+          'no pain, no gain': 'Meaning: You have to work hard to get results.',
+          'pull someone\'s leg': 'Meaning: To joke with someone.',
+          'pulling your leg': 'Meaning: Joking with you.',
+          'sit tight': 'Meaning: Wait and do nothing for now.',
+          'the last straw': 'Meaning: The final problem that makes someone give up.',
+          'on thin ice': 'Meaning: In a risky situation.',
+          'hit the sack': 'Meaning: Go to bed.',
+          'by the skin of your teeth': 'Meaning: Only just.',
+          'easier said than done': 'Meaning: Harder to do than it sounds.',
+          'yeah, right': 'Often sarcastic: it can mean the opposite, "I do not believe that."'
+        });
+
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+          acceptNode: node => (node.parentElement && !node.parentElement.closest('script, style, noscript, textarea, [id^="accessiflow-"]'))
+            ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+        });
         let textNode;
         while ((textNode = walker.nextNode())) {
-          const text = textNode.textContent.toLowerCase();
+          const text = textNode.textContent.toLowerCase().replace(/[’]/g, '\'');
           for (const [idiom, explanation] of Object.entries(idioms)) {
             if (text.includes(idiom)) {
               const parent = textNode.parentElement;
               if (!parent || parent.getAttribute('data-accessiflow-idiom')) continue;
               parent.setAttribute('data-accessiflow-idiom', 'true');
-
-              const tooltip = document.createElement('span');
-              tooltip.setAttribute('data-accessiflow-social-cue', 'true');
-              tooltip.style.cssText = 'display:inline;position:relative;border-bottom:2px dotted #6366f1;cursor:help;';
-              tooltip.title = explanation;
-
-              // We mark the parent but don't restructure DOM extensively to avoid breaking things
+              // What the page had, to put back exactly: it used to wipe the
+              // element's own tooltip when switched off.
+              this._socialCuesEls.push({
+                el: parent,
+                title: parent.getAttribute('title'),
+                border: parent.style.borderBottom
+              });
               parent.style.borderBottom = '2px dotted #6366f1';
               parent.title = (parent.title ? parent.title + ' | ' : '') + explanation;
-              this._socialCuesEls.push(parent);
               break;
             }
           }
         }
       } else {
-        this._socialCuesEls.forEach(el => {
+        this._socialCuesEls.forEach(({ el, title, border }) => {
           try {
             el.removeAttribute('data-accessiflow-idiom');
-            el.style.borderBottom = '';
-            el.title = '';
+            el.style.borderBottom = border || '';
+            if (title === null) el.removeAttribute('title');
+            else el.setAttribute('title', title);
           } catch (e) { /* skip */ }
         });
         this._socialCuesEls = [];
