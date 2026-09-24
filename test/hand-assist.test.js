@@ -719,6 +719,90 @@ function key(type, keyName, target) {
     name.focus();
   }
 
+  // ── Date boxes a calendar fills in ──
+  {
+    const main = doc.querySelector('main');
+    const add = html => {
+      const holder = doc.createElement('div');
+      holder.innerHTML = html;
+      main.appendChild(holder);
+      return holder;
+    };
+    const kinds = add(
+      '<input id="d1" class="hasDatepicker" readonly>' +
+      '<label for="d2">Date of Birth (YYYY-MM-dd):</label><input id="d2" readonly>' +
+      '<input id="d3" name="birth_date" readonly>' +
+      '<label for="d4">জন্ম তারিখ</label><input id="d4" readonly>' +
+      '<input id="d5" placeholder="dd/mm/yyyy" readonly>' +
+      '<label for="n1">Total</label><input id="n1" readonly value="42">' +
+      '<label for="n2">Last updated by</label><input id="n2" readonly>' +
+      '<input id="n3" class="hasDatepicker" readonly disabled>');
+    check(['d1', 'd2', 'd3', 'd4', 'd5'].every(id => A.isDateBox(el(id))),
+      'a read-only date box is known by its date picker, its label, its name, a Bangla label or a format');
+    check(!['n1', 'n2', 'n3', 'name'].some(id => A.isDateBox(el(id))),
+      'but not a read-only total, a word that only contains "date", a disabled box, or a box already open to typing');
+    kinds.remove();
+
+    // As the Birth Registration page has it: read-only, with jQuery UI's calendar.
+    const form = add('<label for="dob">Date of Birth (YYYY-MM-dd):</label>' +
+      '<input id="dob" name="BirthDate" class="hasDatepicker" readonly>' +
+      '<label for="total">Total</label><input id="total" readonly value="42">' +
+      '<label for="when">Appointment</label><input id="when" type="date">');
+    const dob = el('dob');
+    const heard = [];
+    const changes = [];
+    dob.addEventListener('keyup', e => heard.push(e.key + '=' + dob.value));
+    dob.addEventListener('change', () => changes.push(dob.value));
+    dob.focus();
+    check(/typing into .*Date of Birth/.test(root.querySelector('.into').textContent),
+      'the bar says typing goes into the date box: ' + root.querySelector('.into').textContent);
+    press('1', '9', '9', '5', '-', '0', '3', '-', '1', '2');
+    check(dob.value === '1995-03-12', 'the keys type the date into it: "' + dob.value + '"');
+    check(status() === '', 'rather than saying to click a box first: ' + status());
+    check(heard[heard.length - 1] === '2=1995-03-12',
+      'each key comes up after it is typed, as the calendar reads the box then: ' + heard.slice(-2).join(', '));
+    press('Backspace', '5');
+    check(dob.value === '1995-03-15', 'Backspace works in it too: "' + dob.value + '"');
+    check(root.querySelectorAll('.sugg').length === 0, 'and no words are offered for a date');
+    check(changes.length === 0, 'the page hears no change while the date is still being typed');
+    name.focus();
+    check(changes.join() === '1995-03-15', 'and one on leaving the box, as after real typing: ' + changes.join());
+
+    dob.focus();
+    press('Backspace', '6');
+    dob.value = '1995-03-20';       // the calendar puts its own day in, and says so itself
+    name.focus();
+    check(changes.length === 1, 'no change is sent for a date the calendar has since replaced');
+
+    name.value = '2001-02-03';
+    name.select();
+    await A.run('copy', { target: name });
+    dob.value = '';
+    dob.focus();
+    await A.run('paste', { target: dob });
+    check(dob.value === '2001-02-03', 'Paste goes into a date box too: "' + dob.value + '"');
+
+    const total = el('total');
+    total.focus();
+    press('x');
+    check(total.value === '42' && /read-only/.test(status()),
+      'a read-only box that is not a date is left alone, and the keyboard says why: ' + status());
+    check(/read-only/.test(root.querySelector('.into').textContent), 'as does the bar');
+
+    // The browser's own date box, which script cannot type into.
+    const when = el('when');
+    let opened = 0;
+    when.showPicker = () => { opened++; };
+    when.focus();
+    press('7');
+    check(/calendar.*Space/.test(status()), 'a key in the browser’s own date box says how to open its calendar: ' + status());
+    const scrolled = windowScrolls.length;
+    press('Space');
+    check(opened === 1 && windowScrolls.length === scrolled, 'and Space opens it, rather than scrolling the page');
+    form.remove();
+    name.focus();
+  }
+
   // ── Size, place and Hide ──
   {
     const before = storage.accessiflow_keyboard ? storage.accessiflow_keyboard.w : board._geo.w;

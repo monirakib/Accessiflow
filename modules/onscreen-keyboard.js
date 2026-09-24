@@ -73,6 +73,13 @@
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+  // The browser's own date and time boxes, which script can fill only whole.
+  const PICKER_TYPES = ['date', 'time', 'datetime-local', 'month', 'week'];
+  const isPicker = el => Boolean(el && el.tagName === 'INPUT' && !el.disabled && !el.readOnly &&
+    PICKER_TYPES.indexOf((el.getAttribute('type') || '').toLowerCase()) !== -1);
+  const isReadOnly = el => Boolean(el && el.readOnly && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' &&
+    !/^(checkbox|radio|button|submit|reset|image|file|range|color)$/i.test(el.getAttribute('type') || ''))));
+
   const STYLE = [
     ':host { all: initial; }',
     '.kb { box-sizing: border-box; position: relative; display: flex; flex-direction: column; gap: 6px; ',
@@ -592,11 +599,25 @@
       }
     }
 
-    /** The box typing goes into: the page's, or this keyboard's own search box. */
+    /** The box typing goes into: the page's, a date box its calendar fills, or this keyboard's own search box. */
     _field() {
       const A = this._A();
       const el = A.deepActive();
-      return A.isTextField(el) ? el : null;
+      return A.isTextField(el) || A.isDateBox(el) ? el : null;
+    }
+
+    /** Why a key typed nothing, said on the line above the keys. */
+    _whyNot(el) {
+      if (isPicker(el)) return 'Dates are chosen from this box’s calendar. Press Space to open it.';
+      if (isReadOnly(el)) return 'This box is read-only: the page does not let anything be typed into it.';
+      return 'Click a box on the page first, then type.';
+    }
+
+    /** Space on the browser's own date or time box: opens its calendar, as typing cannot fill it. */
+    _openPicker(el) {
+      if (!isPicker(el) || typeof el.showPicker !== 'function') return false;
+      try { el.showPicker(); } catch (e) { this._say('Click the calendar at the end of the box to choose a date.'); }
+      return true;
     }
 
     _type(def, shift) {
@@ -615,7 +636,7 @@
         // Nothing to type into. A site's single-key shortcuts (K to pause a
         // video, C to compose a message) still hear it.
         if (!A.sendKeys(A.deepActive(), { shift: shift }, def.char)) {
-          this._say('Click a box on the page first, then type.');
+          this._say(this._whyNot(A.deepActive()));
         }
         return;
       }
@@ -660,6 +681,7 @@
       }
       const target = A.deepActive();
       if (A.sendKeys(target, { shift: shift }, 'Space')) return;
+      if (this._openPicker(target)) return;
       if (this._pressable(target)) { target.click(); return; }
       A.scrollBy(A.scrollerAt(target), (shift ? -1 : 1) * Math.round(window.innerHeight * 0.85));
     }
@@ -1126,10 +1148,14 @@
       const A = this._A();
       const el = A.deepActive();
       if (el === this._search) return;
-      if (A.isTextField(el)) {
+      if (A.isTextField(el) || A.isDateBox(el)) {
         const P = window.AccessiFlowPageActions;
         const name = P ? P.nameOf(el) : (el.getAttribute('aria-label') || el.name || '');
         this._into.textContent = 'typing into ' + (name ? '“' + name.slice(0, 40) + '”' : 'this box');
+      } else if (isPicker(el)) {
+        this._into.textContent = 'press Space to open this box’s calendar';
+      } else if (isReadOnly(el)) {
+        this._into.textContent = 'this box is read-only';
       } else {
         this._into.textContent = 'click a box on the page to type into it';
       }
@@ -1142,7 +1168,7 @@
       this._saved = null;
       this._updateTarget();
       this._updateSuggestions();
-      if (A.isTextField(el)) this._reveal(el);
+      if (A.isTextField(el) || A.isDateBox(el)) this._reveal(el);
     }
 
     _onFocusOut() {

@@ -270,6 +270,62 @@
     return TEXT_TYPES.indexOf((el.getAttribute('type') || '').toLowerCase()) !== -1;
   }
 
+  // What a date box goes by, in its markup (hasDatepicker, birth_date,
+  // dateOfBirth, txtDOB) or its label, in English or Bangla; and a format
+  // written in it or beside it: YYYY-MM-DD, dd/mm/yyyy.
+  const DATE_WORDS = /\b(date|dob|birth|calendar|flatpickr)|তারিখ|জন্ম/;
+  const DATE_FORMAT = /\b(y{2,4}|m{1,2}|d{1,2})\s*[-/.]\s*(y{2,4}|m{1,2}|d{1,2})\b/;
+
+  /**
+   * A read-only box that a calendar fills in. Sites make date boxes read-only
+   * so the date has to come from the calendar, which for a birth date means
+   * clicking back a month at a time for years. Keys typed into one are let
+   * in: typing the date is what the user is trying to do.
+   */
+  function isDateBox(el) {
+    if (!el || el.nodeType !== 1 || el.tagName !== 'INPUT' || el.disabled || !el.readOnly) return false;
+    if (['', 'text', 'search'].indexOf((el.getAttribute('type') || '').toLowerCase()) === -1) return false;
+    const said = [el.id, el.name, typeof el.className === 'string' ? el.className : '',
+      el.getAttribute('placeholder'), el.getAttribute('aria-label'), el.getAttribute('title'),
+      el.getAttribute('data-provide'), el.getAttribute('data-toggle')];
+    try {
+      Array.from(el.labels || []).forEach(label => said.push(label.textContent));
+      const doc = el.ownerDocument || document;
+      (el.getAttribute('aria-labelledby') || '').split(/\s+/).forEach(id => {
+        const label = id && doc.getElementById(id);
+        if (label) said.push(label.textContent);
+      });
+    } catch (e) { /* named by its markup alone */ }
+    const raw = said.filter(Boolean).join(' ');
+    const words = raw.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase();
+    return DATE_WORDS.test(words) || DATE_FORMAT.test(raw.toLowerCase());
+  }
+
+  // A date box is not typed in by the browser, so what real typing brings
+  // with it is sent from here: the key coming up, which is when a calendar
+  // reads the box (jQuery UI's, bootstrap's), and a change event on leaving,
+  // which Chrome sends only after real typing. Without the first, Enter
+  // chose the day the calendar was still showing, over the date typed.
+  const leaveWith = new WeakMap();
+
+  function typedIntoDateBox(el, key) {
+    try {
+      const f = keyEventFields(key, /[A-Z]/.test(key));
+      el.dispatchEvent(new KeyboardEvent('keyup', {
+        key: f.key, code: f.code, keyCode: f.keyCode, which: f.keyCode, bubbles: true, cancelable: true, composed: true
+      }));
+    } catch (e) { /* a page that throws from its own listener */ }
+    if (!leaveWith.has(el)) {
+      el.addEventListener('blur', () => {
+        const typed = leaveWith.get(el);
+        leaveWith.delete(el);
+        // Not when the calendar has put its own date in since: it said so.
+        if (typed === el.value) el.dispatchEvent(new Event('change', { bubbles: true }));
+      }, { once: true });
+    }
+    leaveWith.set(el, el.value);
+  }
+
   /** Whether selectionStart and setRangeText work: not on email or number. */
   function hasCaret(el) {
     try { return el && typeof el.selectionStart === 'number'; } catch (e) { return false; }
@@ -322,6 +378,7 @@
       }
       const Input = typeof InputEvent === 'function' ? InputEvent : Event;
       el.dispatchEvent(new Input('input', { bubbles: true, inputType: 'insertText', data: text }));
+      if (isDateBox(el)) typedIntoDateBox(el, text.slice(-1));
       return true;
     } catch (e) { return false; }
   }
@@ -342,6 +399,7 @@
     const Input = typeof InputEvent === 'function' ? InputEvent : Event;
     el.dispatchEvent(new Input('input', { bubbles: true,
       inputType: direction < 0 ? 'deleteContentBackward' : 'deleteContentForward' }));
+    if (isDateBox(el)) typedIntoDateBox(el, direction < 0 ? 'Backspace' : 'Delete');
     return true;
   }
 
@@ -484,7 +542,7 @@
   }
 
   async function paste(el) {
-    if (!isTextField(el)) return 'Click in a box first, then Paste.';
+    if (!isTextField(el) && !isDateBox(el)) return 'Click in a box first, then Paste.';
     // Only works where Chrome lets extensions read the clipboard outright.
     if (exec(el, 'paste')) return 'Pasted.';
     // Chrome asks the user, once for each site.
@@ -712,7 +770,7 @@
     ACTIONS, OUT_OF_REACH,
     byId, forCombo, explain, search, normalise, comboOf, display, keyName,
     run, runCombo, sendKeys, keyEventFields,
-    deepActive, isTextField, hasCaret, insertText, deleteText, selectedText, isOurs, composedParent,
+    deepActive, isTextField, isDateBox, hasCaret, insertText, deleteText, selectedText, isOurs, composedParent,
     scrollerAt, scrollBy,
     toast: message => Toast.show(message),
     destroy() { Toast.destroy(); Preview.hide(); }
