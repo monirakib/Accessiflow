@@ -69,6 +69,7 @@
         "modules/motor.js",
         "modules/hand-actions.js",
         "modules/pointer-dial.js",
+        "modules/word-predict.js",
         "modules/onscreen-keyboard.js",
         "modules/cognitive.js",
         "modules/hearing.js",

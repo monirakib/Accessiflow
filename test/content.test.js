@@ -90,6 +90,7 @@ window.chrome = {
     onChanged: { addListener: fn => storageListeners.push(fn) }
   },
   runtime: {
+    id: 'accessiflow-test',
     lastError: null,
     onMessage: { addListener: fn => listeners.push(fn) },
     sendMessage: (msg, cb) => {
@@ -739,6 +740,31 @@ const press = (key, opts) => doc.dispatchEvent(
     await settle();
     check((await send({ action: 'getSettings' })).data.textSize === 110,
       'and this site\'s own exception wins over the setup');
+  }
+
+  // ── The hold-click menu and the keyboard follow the setup ────────────────
+  {
+    window.chrome.storage.local.set({ accessiflow_setup: { v: 1, needs: [], settings: { holdDial: true, onScreenKeyboard: true } } });
+    window.chrome.storage.local.set({ 'settings_example.gov': { _v: 2 } });
+    await settle();
+    const board = doc.getElementById('accessiflow-keyboard');
+    check(board && board.style.display !== 'none',
+      'turning the on-screen keyboard on in the setup shows it on pages already open');
+  }
+
+  // ── Cut off by an update ─────────────────────────────────────────────────
+  // What Chrome does to the copy left in an open tab when AccessiFlow is
+  // updated or reloaded: its connection to the extension goes.
+  {
+    const id = window.chrome.runtime.id;
+    delete window.chrome.runtime.id;
+    window.dispatchEvent(new window.Event('focus'));
+    check(!doc.getElementById('accessiflow-keyboard'),
+      'a copy cut off by an update clears its keyboard away as soon as the tab is used');
+    const toast = doc.getElementById('accessiflow-hand-toast');
+    check(toast && /updated\. Reload this page/.test(toast.shadowRoot.textContent),
+      'and says to reload the page, rather than leaving half-working tools behind');
+    window.chrome.runtime.id = id;
   }
 
   console.log('\n=== PASS (' + ok.length + ') ===');

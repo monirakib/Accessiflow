@@ -114,6 +114,14 @@ clicking**; the Hand movement profile turns on the first.
   on-screen keyboard. Move towards one and let go. Holding on a scroll choice
   keeps scrolling until let go, at the speed chosen; a quick flick scrolls one
   screen. Eight and no more, because a crowded ring is a hard one to aim at.
+- **What is in the ring is the user's to choose.** Each of the eight places has
+  its own setting (*Ring, top*, *Ring, top right* and so on) offering about
+  thirty actions: copy and paste, zoom, a screenshot, new and closed tabs,
+  read aloud and stop, the Shortcuts list, or nothing at all. An empty place
+  is drawn dimmed so the ring keeps its shape, and letting go on it does
+  nothing. The chosen choice lifts out of the ring, a marker on the middle
+  shows which way the pointer is heading, and the middle names what letting
+  go will do.
 - **A held button already means things on the web**, so the ring only takes
   the holds nobody else wanted. A quick click is let go before the delay and
   reaches the page as usual. Dragging and selecting text move the pointer, and
@@ -142,6 +150,22 @@ clicking**; the Hand movement profile turns on the first.
   being built share one line of fixed height, and the Shortcuts list has a
   fixed height too: a first version let both grow and shrink, which moved
   every key under the user's hand as they typed.
+- **Suggested words.** A row above the keys offers words that finish the one
+  being typed: "Dha" gives "Dhaka" and "Dhanmondi" on a page about Dhaka.
+  They come from [modules/word-predict.js](modules/word-predict.js), which reads
+  the page itself, counts what the user has typed on it more heavily, and falls
+  back on a few hundred common English words where the page has little text
+  (a search page, a login form). Reading the page is what makes it work for
+  Bangla with no dictionary to ship. A name keeps its capital, capitals typed
+  are kept, and choosing a word replaces the part-typed one in a single step
+  Ctrl+Z takes back. Nothing is stored or sent, and a password box is never
+  offered words or learned from. *Suggest words* switches it off.
+- **New tab from AccessiFlow opens Google.** Chrome's own new tab page, which
+  looks like Google's, is `chrome://new-tab-page/`, and Chrome lets no
+  extension run there: the ring, the keyboard and the large pointer all
+  vanish, and with the keyboard gone there is no way left to type a search.
+  So New tab on the ring or the keyboard opens `www.google.com` instead.
+  Ctrl+T on a real keyboard still opens Chrome's page.
 - **What a page can press, and what it cannot.** A key event made by a page is
   marked as made by a page: Chrome ignores it for its own shortcuts, and
   Windows never sees it at all. So [modules/hand-actions.js](modules/hand-actions.js)
@@ -173,6 +197,45 @@ clicking**; the Hand movement profile turns on the first.
   stops at a shadow root, so it could not press a key at all. Both now see
   what is really under the pointer.
 
+### The large pointer, and why it went missing
+
+*Large pointer* used to hide the real pointer (`cursor: none`) and draw a
+green circle on the page, moved to wherever the last mouse event said the
+pointer was. Testers found it laggy, and found it gone. Both were built in:
+a circle drawn by the page trails the hand by a frame or more, and wherever
+the page heard no mouse move there was no pointer at all, just after switching
+tabs, after any setting changed (which rebuilt the circle off screen), and over
+an embedded frame from another site.
+
+It is now a cursor picture handed to the system in CSS, so it moves with the
+mouse itself and cannot go missing. Where a site's security policy refuses the
+picture, the ordinary pointer shows instead. There are three styles under
+*Pointer style*: a big arrow (with a big hand over links and a big text cursor
+in boxes, so those cues are not lost), the big green circle, and the ordinary
+pointer with a ring round it. *Pointer colour* offers green, white, black and
+yellow. Pictures are capped at 128 pixels, the most Chrome will show; above 32
+pixels Chrome also swaps in its own pointer near the address bar, so a page
+cannot draw a fake one over it. The pictures are also set as CSS custom
+properties, which reach inside shadow roots where page rules cannot, so the
+keyboard and the ring show the same pointer.
+
+*Pull my clicks onto buttons* made the pointer feel heavy on long pages too:
+it searched the whole page for the nearest button on every mouse event and
+again after every scroll event. It now works that out once a frame at most,
+rebuilds its list no more than ten times a second while the page scrolls, and
+works the click itself out afresh from where the click really is, so a list a
+frame out of date can never send a click somewhere the user did not press.
+
+Two more fixes from the same round of testing. The dictation bar, which the
+Hand movement profile turns on, sat on every page from the moment it was on;
+it now shows only in a box it can fill, while listening, or for a few seconds
+to say what happened. And when AccessiFlow is updated or reloaded, Chrome
+leaves the old copy running in tabs that were already open, cut off from the
+extension, until the page reloads; its pointer, keyboard and menus stayed
+behind and half worked, which is why one tab behaved differently from the
+next. The old copy now notices it has been cut off as soon as the tab is looked
+at or clicked, clears itself away, and says to reload the page.
+
 ## Layout
 
 ```
@@ -194,6 +257,7 @@ modules/               Per-disability feature modules (vision, motor, ...)
   hand-actions.js      What a shortcut does, done without the keys
   pointer-dial.js      The hold-click menu
   onscreen-keyboard.js The on-screen keyboard, with keys that stay held
+  word-predict.js      Words to finish the one being typed, from the page
   ai-config.js         Shared AI constants for worker and content scripts
   ai.js                Finds work, prepares it, applies results. No network.
 server/                Cloudflare Worker proxy. The HF token lives here.
@@ -559,6 +623,10 @@ automated tests only stop the obvious regressions.
   hold-click menu and the on-screen keyboard have the same limit: the ring
   does not open over an embedded video, and the keyboard cannot type into a
   payment box from another site.
+- Nothing of AccessiFlow runs on Chrome's own pages: the new tab page (which
+  looks like Google's), settings, the Web Store, and anything else at a
+  `chrome://` address. Chrome refuses every extension there. AccessiFlow's
+  own New tab opens Google's real page for that reason.
 - A few sites give a held-still button a meaning of their own, such as a
   press-and-wait before reordering a list. With the left button chosen, the
   ring opens there too. Choosing the right button avoids it.

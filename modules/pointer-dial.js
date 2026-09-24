@@ -19,27 +19,65 @@
 // Letting go without choosing leaves the ring open, for anyone who cannot
 // keep a button down: then a click chooses, and a click in the middle closes
 // it. Holding on Scroll up or Scroll down keeps scrolling until let go.
+//
+// What sits in each of the eight places is the user's choice, from the
+// actions below, in the popup's Moving and clicking section.
 'use strict';
 
 (function () {
   if (typeof window !== 'undefined' && window.AccessiFlowPointerDial) return;
 
+  // Everything the ring can hold. Icons are drawn as lines on a 24 by 24
+  // grid rather than taken from a font, so they look the same on every
+  // computer and are never read out as symbols.
+  const ACTIONS = {
+    scrollUp: { name: 'Scroll up', lines: ['Scroll', 'up'], scroll: -1, icon: 'M12 19V5M5 12l7-7 7 7' },
+    scrollDown: { name: 'Scroll down', lines: ['Scroll', 'down'], scroll: 1, icon: 'M12 5v14M19 12l-7 7-7-7' },
+    back: { name: 'Back', lines: ['Back'], icon: 'M19 12H5M12 19l-7-7 7-7' },
+    forward: { name: 'Forward', lines: ['Forward'], icon: 'M5 12h14M12 5l7 7-7 7' },
+    prevTab: { name: 'Previous tab', lines: ['Previous', 'tab'], icon: 'M10 5h10v14H10zM10 12H3M6 9l-3 3 3 3' },
+    nextTab: { name: 'Next tab', lines: ['Next', 'tab'], icon: 'M4 5h10v14H4zM14 12h7M18 9l3 3-3 3' },
+    reload: { name: 'Reload', lines: ['Reload'], icon: 'M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5' },
+    keyboard: { name: 'Keyboard', lines: ['Keyboard'], icon: 'M2 6h20v12H2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10' },
+    shortcuts: { name: 'Shortcuts', lines: ['Shortcuts'], icon: 'M13 2L4 14h7l-1 8 9-12h-7z' },
+    newTab: { name: 'New tab', lines: ['New', 'tab'], icon: 'M4 5h16v14H4zM12 9v6M9 12h6' },
+    closeTab: { name: 'Close tab', lines: ['Close', 'tab'], icon: 'M4 5h16v14H4zM9.5 9.5l5 5M14.5 9.5l-5 5' },
+    top: { name: 'Top of page', lines: ['Top'], icon: 'M5 3h14M12 21V8M6 13l6-6 6 6' },
+    bottom: { name: 'Bottom of page', lines: ['Bottom'], icon: 'M5 21h14M12 3v13M6 11l6 6 6-6' },
+    copy: { name: 'Copy', lines: ['Copy'], icon: 'M9 9h11v11H9zM5 15H4V4h11v1' },
+    cut: { name: 'Cut', lines: ['Cut'], icon: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8.1 7.9L20 20M8.1 16.1L20 4' },
+    paste: { name: 'Paste', lines: ['Paste'], icon: 'M9 3h6v4H9zM7 5H5v16h14V5h-2' },
+    selectAll: { name: 'Select all', lines: ['Select', 'all'], icon: 'M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M9 9h6v6H9z' },
+    undo: { name: 'Undo', lines: ['Undo'], icon: 'M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3' },
+    redo: { name: 'Redo', lines: ['Redo'], icon: 'M15 14l5-5-5-5M20 9H9a5 5 0 0 0 0 10h3' },
+    zoomIn: { name: 'Zoom in', lines: ['Zoom', 'in'], icon: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-5-5M11 8v6M8 11h6' },
+    zoomOut: { name: 'Zoom out', lines: ['Zoom', 'out'], icon: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-5-5M8 11h6' },
+    zoomReset: { name: 'Normal size', lines: ['Normal', 'size'], icon: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-5-5M9.5 9.5h3v3h-3z' },
+    screenshot: { name: 'Screenshot', lines: ['Screenshot'], icon: 'M4 8h3l2-3h6l2 3h3v11H4zM12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z' },
+    print: { name: 'Print', lines: ['Print'], icon: 'M7 9V3h10v6M7 17H4V9h16v8h-3M7 14h10v7H7z' },
+    history: { name: 'History', lines: ['History'], icon: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2' },
+    downloads: { name: 'Downloads', lines: ['Downloads'], icon: 'M12 4v11M7 10l5 5 5-5M5 20h14' },
+    newWindow: { name: 'New window', lines: ['New', 'window'], icon: 'M3 5h18v14H3zM3 9h18' },
+    readPage: { name: 'Read aloud', lines: ['Read', 'aloud'], icon: 'M4 9h4l5-4v14l-5-4H4zM16 9a3 3 0 0 1 0 6M18.5 6.5a7 7 0 0 1 0 11' },
+    stopReading: { name: 'Stop reading', lines: ['Stop', 'reading'], icon: 'M4 9h4l5-4v14l-5-4H4zM16 10l4 4M20 10l-4 4' }
+  };
+
   // Clockwise from the top. Opposites face each other, so "back" things sit
   // on the left and "forward" things on the right.
-  const ITEMS = [
-    { id: 'scrollUp', lines: ['Scroll', 'up'], icon: '▲', scroll: -1, name: 'Scroll up' },
-    { id: 'nextTab', lines: ['Next', 'tab'], icon: '⇥', name: 'Next tab' },
-    { id: 'forward', lines: ['Forward'], icon: '→', name: 'Forward' },
-    { id: 'reload', lines: ['Reload'], icon: '⟳', name: 'Reload' },
-    { id: 'scrollDown', lines: ['Scroll', 'down'], icon: '▼', scroll: 1, name: 'Scroll down' },
-    { id: 'keyboard', lines: ['Keyboard'], icon: '⌨', name: 'Keyboard' },
-    { id: 'back', lines: ['Back'], icon: '←', name: 'Back' },
-    { id: 'prevTab', lines: ['Previous', 'tab'], icon: '⇤', name: 'Previous tab' }
-  ];
+  const DEFAULT_SLOTS = ['scrollUp', 'nextTab', 'forward', 'reload', 'scrollDown', 'keyboard', 'back', 'prevTab'];
+
+  /** The eight places, filled in from the user's choices; `null` is an empty place. */
+  function itemsFor(slots) {
+    return DEFAULT_SLOTS.map((fallback, i) => {
+      const id = slots && slots[i] !== undefined && slots[i] !== null && slots[i] !== '' ? slots[i] : fallback;
+      return ACTIONS[id] ? Object.assign({ id: id }, ACTIONS[id]) : null;
+    });
+  }
 
   const OUTER = 150;           // ring radius, px
-  const INNER = 46;            // the middle, where letting go chooses nothing
-  const LABEL = 100;           // where the words sit
+  const INNER = 48;            // the middle, where letting go chooses nothing
+  const LABEL = 104;           // where each choice's icon and words sit
+  const GAP_PX = 5;            // pixels of space between neighbouring choices
   const STILL = 14;            // drift allowed while holding before it counts as a drag
   const MOVED = 10;            // travel from where the ring opened before a choice counts
   const SCROLL_ARM = 150;      // ms on a scroll choice before scrolling starts
@@ -93,6 +131,8 @@
       this._parts = null;
       this._noSelect = null;
       this._saved = null;
+      this._items = itemsFor(null);
+      this._slotsKey = DEFAULT_SLOTS.join();
 
       this._onDown = this._onDown.bind(this);
       this._onMove = this._onMove.bind(this);
@@ -106,9 +146,13 @@
       this._scrollFrame = this._scrollFrame.bind(this);
     }
 
-    static get ITEMS() { return ITEMS; }
+    static get ACTIONS() { return ACTIONS; }
+    static get DEFAULT_SLOTS() { return DEFAULT_SLOTS.slice(); }
 
     get isOpen() { return Boolean(this._open); }
+
+    /** What is in each place now, clockwise from the top: ids, or null for empty. */
+    get slots() { return this._items.map(item => (item ? item.id : null)); }
 
     /**
      * @param {object} opts
@@ -116,6 +160,8 @@
      * @param {number} [opts.delay] ms the button must be held
      * @param {'left'|'right'} [opts.button]
      * @param {'slow'|'medium'|'fast'} [opts.speed] of held scrolling
+     * @param {string[]} [opts.slots] eight action ids, clockwise from the top;
+     *   'none' leaves a place empty, and anything missing keeps its default
      */
     apply(opts) {
       const o = opts || {};
@@ -125,6 +171,17 @@
         button: o.button === 'right' ? 'right' : 'left',
         speed: SPEEDS[o.speed] ? o.speed : 'medium'
       };
+      const items = itemsFor(o.slots);
+      const key = items.map(item => (item ? item.id : '')).join();
+      if (key !== this._slotsKey) {
+        // Drawn again from scratch next time it opens.
+        this._items = items;
+        this._slotsKey = key;
+        this.close();
+        if (this._host) this._host.remove();
+        this._host = null;
+        this._parts = null;
+      }
       if (this._opts.enabled) {
         this._listen(true);
       } else {
@@ -170,13 +227,26 @@
       // A held modifier makes it a deliberate click of some other kind.
       if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return false;
       if (document.pointerLockElement) return false;                  // a game has the mouse
-      const de = document.documentElement;
-      // On the page's scrollbar, where holding scrolls.
-      if (de && de.clientWidth && e.clientX >= de.clientWidth) return false;
-      if (de && de.clientHeight && e.clientY >= de.clientHeight) return false;
+      // On the page's scrollbar, where holding scrolls. The viewport is
+      // measured on the scrolling element: in an old-style page without a
+      // doctype, <html> is only as tall as the text, and every press below
+      // that would have been taken for the scrollbar.
+      const view = document.scrollingElement || document.documentElement;
+      if (view && view.clientWidth && e.clientX >= view.clientWidth) return false;
+      if (view && view.clientHeight && e.clientY >= view.clientHeight) return false;
 
       const target = e.composedPath ? e.composedPath()[0] : e.target;
       if (!target || isOurs(target)) return false;
+      // On the scrollbar of a panel inside the page.
+      if (target.nodeType === 1 && target.getBoundingClientRect && target !== view) {
+        const r = target.getBoundingClientRect();
+        const right = r.left + target.clientLeft + target.clientWidth;
+        const bottom = r.top + target.clientTop + target.clientHeight;
+        if ((target.scrollHeight > target.clientHeight && target.clientWidth && e.clientX >= right && e.clientX < r.right) ||
+            (target.scrollWidth > target.clientWidth && target.clientHeight && e.clientY >= bottom && e.clientY < r.bottom)) {
+          return false;
+        }
+      }
       for (let n = target; n; n = composedParent(n)) {
         if (n.nodeType === 1 && n.matches && n.matches(EXCLUDE)) return false;
       }
@@ -235,7 +305,7 @@
         scroll: null
       };
       this._holdSelection();
-      this._draw();
+      this._draw(true);
     }
 
     /** Which choice a point is on, or -1 for the middle or, when clicking, well outside. */
@@ -249,14 +319,21 @@
       // While dragging, direction is enough: a flick past the edge still
       // counts. A click has to land on the ring or near it.
       if (o.mode === 'click' && distance > OUTER + 24) return -1;
-      const degrees = (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
-      return Math.round(degrees / 45) % ITEMS.length;
+      const index = Math.round(this._angleOf(dx, dy) / 45) % this._items.length;
+      // An empty place is nothing, the same as the middle.
+      return this._items[index] ? index : -1;
+    }
+
+    /** Degrees clockwise from straight up. */
+    _angleOf(dx, dy) {
+      return (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
     }
 
     _track(x, y) {
       const o = this._open;
       if (!o.moved && Math.hypot(x - o.ox, y - o.oy) >= MOVED) o.moved = true;
       if (o.mode === 'drag' && !o.moved) return;
+      this._point(x, y);
       this._highlight(this._indexAt(x, y));
       if (o.holding) this._updateScroll();
     }
@@ -294,9 +371,9 @@
       const down = o.downIndex;
       o.downIndex = -1;
 
-      if (down >= 0 && ITEMS[down].scroll) {
+      if (down >= 0 && this._items[down].scroll) {
         // Scrolling by clicks keeps the ring open for the next one.
-        if (index === down && !(o.scroll && o.scroll.moved)) this._step(ITEMS[down].scroll);
+        if (index === down && !(o.scroll && o.scroll.moved)) this._step(this._items[down].scroll);
         this._stopScroll();
         this._highlight(index);
         return;
@@ -317,7 +394,7 @@
     }
 
     _choose(index) {
-      const item = ITEMS[index];
+      const item = this._items[index];
       if (!item) return;
       if (item.scroll) {
         const o = this._open;
@@ -390,15 +467,23 @@
       if (!o) return;
       let handled = true;
       const current = o.highlight;
+      const count = this._items.length;
+      // The next place round that holds something, either way.
+      const next = step => {
+        let i = current < 0 ? (step > 0 ? -1 : count) : current;
+        for (let n = 0; n < count; n++) {
+          i = (i + step + count) % count;
+          if (this._items[i]) return i;
+        }
+        return -1;
+      };
       switch (e.key) {
         case 'Escape': this.close(); break;
-        case 'ArrowRight': case 'ArrowDown':
-          this._highlight(current < 0 ? 0 : (current + 1) % ITEMS.length); break;
-        case 'ArrowLeft': case 'ArrowUp':
-          this._highlight(current < 0 ? ITEMS.length - 1 : (current + ITEMS.length - 1) % ITEMS.length); break;
+        case 'ArrowRight': case 'ArrowDown': this._highlight(next(1)); break;
+        case 'ArrowLeft': case 'ArrowUp': this._highlight(next(-1)); break;
         case 'Enter': case ' ':
           if (current >= 0) {
-            if (ITEMS[current].scroll) this._step(ITEMS[current].scroll);
+            if (this._items[current].scroll) this._step(this._items[current].scroll);
             else this._choose(current);
           }
           break;
@@ -460,7 +545,7 @@
       const o = this._open;
       if (!o || !o.holding || o.highlight < 0) return 0;
       if (o.mode === 'click' && o.highlight !== o.downIndex) return 0;
-      return ITEMS[o.highlight].scroll || 0;
+      return this._items[o.highlight].scroll || 0;
     }
 
     _updateScroll() {
@@ -529,34 +614,60 @@
       if (this._parts) this._paint();
     }
 
+    /** The marker on the middle's edge, pointing the way the pointer is heading. */
+    _point(x, y) {
+      const o = this._open;
+      const p = this._parts;
+      if (!o || !p) return;
+      const dx = x - o.cx;
+      const dy = y - o.cy;
+      if (Math.hypot(dx, dy) < 8) { p.needle.style.display = 'none'; return; }
+      p.needle.setAttribute('transform', 'rotate(' + this._angleOf(dx, dy).toFixed(1) + ')');
+      p.needle.style.display = '';
+    }
+
     _build() {
       const host = document.createElement('div');
       host.id = 'accessiflow-dial';
       host.style.cssText = 'all: initial; position: fixed; inset: 0; z-index: 2147483646; display: none; ' +
-        'background: rgba(0,0,0,.12); cursor: default;';
+        'background: rgba(0,0,0,.08); cursor: var(--af-cursor, default);';
       const root = host.attachShadow ? host.attachShadow({ mode: 'open' }) : host;
 
       const style = document.createElement('style');
       style.textContent = [
-        'svg { position: fixed; overflow: visible; font-family: system-ui, "Segoe UI", sans-serif; ',
-        '  filter: drop-shadow(0 8px 20px rgba(0,0,0,.45)); }',
-        '.wedge path { fill: #16181d; stroke: #4fffb0; stroke-width: 1.5; }',
-        '.wedge text { fill: #f4f5f7; font-size: 14px; font-weight: 700; text-anchor: middle; }',
-        '.wedge .icon { font-size: 20px; font-weight: 400; }',
-        '.wedge.on path { fill: #ffd400; stroke: #111; stroke-width: 2.5; }',
+        'svg { position: fixed; overflow: visible; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; ',
+        '  filter: drop-shadow(0 10px 24px rgba(0,0,0,.45)); transform-origin: 50% 50%; }',
+        'svg.pop { animation: af-pop .12s ease-out; }',
+        '@keyframes af-pop { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }',
+        '.base { fill: #0b0c10; }',
+        '.rim { fill: none; stroke: #4fffb0; stroke-width: 2; opacity: .9; }',
+        '.wedge { transition: transform .09s ease-out; }',
+        '.wedge .shape { fill: #1b1e25; stroke: rgba(255,255,255,.12); stroke-width: 1; }',
+        '.wedge .glyph, .middle .glyph { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }',
+        '.wedge .glyph { stroke: #f4f5f7; }',
+        '.wedge text { fill: #f4f5f7; font-size: 13px; font-weight: 700; text-anchor: middle; }',
+        '.wedge.on .shape { fill: #ffd400; stroke: #111; stroke-width: 1.5; }',
+        '.wedge.on .glyph { stroke: #111; }',
         '.wedge.on text { fill: #111; }',
-        '.middle circle { fill: #0e0f13; stroke: #4fffb0; stroke-width: 2; }',
+        '.wedge.empty .shape { fill: #14161b; opacity: .55; }',
+        '.middle .disc { fill: #0e0f13; stroke: #4fffb0; stroke-width: 2; }',
+        '.middle .glyph { stroke: #ffd400; }',
         '.middle text { fill: #f4f5f7; font-size: 11.5px; font-weight: 600; text-anchor: middle; }',
+        '.needle { fill: #ffd400; stroke: #111; stroke-width: 1.2; }',
+        '@media (prefers-reduced-motion: reduce) { .wedge { transition: none; } svg.pop { animation: none; } }',
         '@media (forced-colors: active) {',
-        '  .wedge path, .middle circle { fill: Canvas; stroke: CanvasText; }',
+        '  .wedge .shape, .middle .disc { fill: Canvas; stroke: CanvasText; }',
+        '  .wedge .glyph, .middle .glyph, .rim { stroke: CanvasText; }',
         '  .wedge text, .middle text { fill: CanvasText; }',
-        '  .wedge.on path { fill: Highlight; stroke: HighlightText; }',
+        '  .wedge.on .shape { fill: Highlight; stroke: HighlightText; }',
+        '  .wedge.on .glyph { stroke: HighlightText; }',
         '  .wedge.on text { fill: HighlightText; }',
+        '  .needle { fill: Highlight; }',
         '}'
       ].join('\n');
       root.appendChild(style);
 
-      const size = OUTER * 2 + 8;
+      const size = OUTER * 2 + 40;
       const svg = document.createElementNS(SVG, 'svg');
       svg.setAttribute('width', String(size));
       svg.setAttribute('height', String(size));
@@ -564,74 +675,117 @@
       svg.setAttribute('role', 'menu');
       svg.setAttribute('aria-label', 'Hold-click menu');
 
+      const round = n => Math.round(n * 100) / 100;
       const point = (radius, degrees) => {
         const a = (degrees - 90) * Math.PI / 180;
-        return [Math.round(radius * Math.cos(a) * 100) / 100, Math.round(radius * Math.sin(a) * 100) / 100];
+        return [round(radius * Math.cos(a)), round(radius * Math.sin(a))];
+      };
+      // The same width of gap all the way along, rather than a wedge of
+      // nothing that widens towards the edge.
+      const gapAt = radius => (GAP_PX / 2) / radius * 180 / Math.PI;
+      const glyph = (d, x, y, px) => {
+        const path = document.createElementNS(SVG, 'path');
+        path.setAttribute('class', 'glyph');
+        path.setAttribute('d', d);
+        path.setAttribute('transform', 'translate(' + round(x) + ' ' + round(y) + ') scale(' + round(px / 24) + ')');
+        path.setAttribute('aria-hidden', 'true');
+        return path;
       };
 
-      const wedges = ITEMS.map((item, i) => {
+      // A dark disc under the choices, so the gaps between them are dark
+      // lines rather than slits showing the page behind.
+      const base = document.createElementNS(SVG, 'circle');
+      base.setAttribute('class', 'base');
+      base.setAttribute('r', String(OUTER + 1));
+      svg.appendChild(base);
+      const rim = document.createElementNS(SVG, 'circle');
+      rim.setAttribute('class', 'rim');
+      rim.setAttribute('r', String(OUTER + 5));
+      svg.appendChild(rim);
+
+      const wedges = this._items.map((item, i) => {
         const g = document.createElementNS(SVG, 'g');
-        g.setAttribute('class', 'wedge');
-        g.setAttribute('role', 'menuitem');
-        g.setAttribute('aria-label', item.name);
-        const from = i * 45 - 22.5;
-        const to = i * 45 + 22.5;
-        const [ox1, oy1] = point(OUTER, from);
-        const [ox2, oy2] = point(OUTER, to);
-        const [ix2, iy2] = point(INNER, to);
-        const [ix1, iy1] = point(INNER, from);
-        const path = document.createElementNS(SVG, 'path');
-        path.setAttribute('d', 'M' + ix1 + ' ' + iy1 + ' L' + ox1 + ' ' + oy1 +
+        g.setAttribute('class', item ? 'wedge' : 'wedge empty');
+        const centre = i * 45;
+        const [ox1, oy1] = point(OUTER, centre - 22.5 + gapAt(OUTER));
+        const [ox2, oy2] = point(OUTER, centre + 22.5 - gapAt(OUTER));
+        const [ix2, iy2] = point(INNER, centre + 22.5 - gapAt(INNER));
+        const [ix1, iy1] = point(INNER, centre - 22.5 + gapAt(INNER));
+        const shape = document.createElementNS(SVG, 'path');
+        shape.setAttribute('class', 'shape');
+        shape.setAttribute('d', 'M' + ix1 + ' ' + iy1 + ' L' + ox1 + ' ' + oy1 +
           ' A' + OUTER + ' ' + OUTER + ' 0 0 1 ' + ox2 + ' ' + oy2 +
           ' L' + ix2 + ' ' + iy2 + ' A' + INNER + ' ' + INNER + ' 0 0 0 ' + ix1 + ' ' + iy1 + ' Z');
-        g.appendChild(path);
+        g.appendChild(shape);
 
-        const [lx, ly] = point(LABEL, i * 45);
-        const lines = item.lines;
-        const icon = document.createElementNS(SVG, 'text');
-        icon.setAttribute('class', 'icon');
-        icon.setAttribute('aria-hidden', 'true');
-        icon.setAttribute('x', String(lx));
-        icon.setAttribute('y', String(ly - 6 - (lines.length - 1) * 8));
-        icon.textContent = item.icon;
-        g.appendChild(icon);
-        const text = document.createElementNS(SVG, 'text');
-        text.setAttribute('aria-hidden', 'true');
-        lines.forEach((line, n) => {
-          const span = document.createElementNS(SVG, 'tspan');
-          span.setAttribute('x', String(lx));
-          span.setAttribute('y', String(ly + 14 + n * 16 - (lines.length - 1) * 8));
-          span.textContent = line;
-          text.appendChild(span);
-        });
-        g.appendChild(text);
+        if (!item) {
+          g.setAttribute('aria-hidden', 'true');
+        } else {
+          g.setAttribute('role', 'menuitem');
+          g.setAttribute('aria-label', item.name);
+          // Icon above, words below, the pair centred on the label circle.
+          const [lx, ly] = point(LABEL, centre);
+          const lines = item.lines;
+          const top = ly - (22 + 3 + 14 * lines.length) / 2;
+          g.appendChild(glyph(item.icon, lx - 11, top, 22));
+          const text = document.createElementNS(SVG, 'text');
+          text.setAttribute('aria-hidden', 'true');
+          lines.forEach((line, n) => {
+            const span = document.createElementNS(SVG, 'tspan');
+            span.setAttribute('x', String(lx));
+            span.setAttribute('y', String(round(top + 22 + 3 + 11 + n * 14)));
+            span.textContent = line;
+            text.appendChild(span);
+          });
+          g.appendChild(text);
+        }
         svg.appendChild(g);
         return g;
       });
 
       const middle = document.createElementNS(SVG, 'g');
       middle.setAttribute('class', 'middle');
-      const circle = document.createElementNS(SVG, 'circle');
-      circle.setAttribute('r', String(INNER - 4));
-      middle.appendChild(circle);
+      const disc = document.createElementNS(SVG, 'circle');
+      disc.setAttribute('class', 'disc');
+      disc.setAttribute('r', String(INNER - 6));
+      middle.appendChild(disc);
+      const icon = document.createElementNS(SVG, 'g');
+      middle.appendChild(icon);
       const hint = document.createElementNS(SVG, 'text');
       hint.setAttribute('aria-live', 'polite');
       middle.appendChild(hint);
+      const needle = document.createElementNS(SVG, 'g');
+      needle.style.display = 'none';
+      const dot = document.createElementNS(SVG, 'path');
+      dot.setAttribute('class', 'needle');
+      // A small arrowhead on the middle's edge, pointing outwards.
+      const r = INNER - 6;
+      dot.setAttribute('d', 'M0 ' + (-r - 7) + ' L6 ' + (-r + 2) + ' L-6 ' + (-r + 2) + ' Z');
+      needle.appendChild(dot);
+      middle.appendChild(needle);
       svg.appendChild(middle);
 
       root.appendChild(svg);
       document.documentElement.appendChild(host);
       this._host = host;
-      this._parts = { svg: svg, wedges: wedges, hint: hint, size: size };
+      this._parts = { svg: svg, wedges: wedges, hint: hint, icon: icon, needle: needle, size: size, glyph: glyph };
     }
 
-    _draw() {
+    _draw(opening) {
       if (!this._host || !this._host.isConnected) this._build();
       const o = this._open;
       const p = this._parts;
       p.svg.style.left = (o.cx - p.size / 2) + 'px';
       p.svg.style.top = (o.cy - p.size / 2) + 'px';
       this._host.style.display = '';
+      if (opening) {
+        p.needle.style.display = 'none';
+        if (motionOK()) {
+          p.svg.classList.remove('pop');
+          void p.svg.getBoundingClientRect();
+          p.svg.classList.add('pop');
+        }
+      }
       this._paint();
     }
 
@@ -639,20 +793,41 @@
       const o = this._open;
       const p = this._parts;
       if (!o || !p) return;
-      p.wedges.forEach((g, i) => g.setAttribute('class', i === o.highlight ? 'wedge on' : 'wedge'));
+      p.wedges.forEach((g, i) => {
+        const item = this._items[i];
+        const on = i === o.highlight;
+        g.setAttribute('class', !item ? 'wedge empty' : on ? 'wedge on' : 'wedge');
+        // The chosen one lifts out of the ring a little, towards the pointer.
+        if (on) {
+          const a = (i * 45 - 90) * Math.PI / 180;
+          g.style.transform = 'translate(' + (7 * Math.cos(a)).toFixed(1) + 'px, ' + (7 * Math.sin(a)).toFixed(1) + 'px)';
+        } else {
+          g.style.transform = '';
+        }
+      });
 
+      const item = o.highlight >= 0 ? this._items[o.highlight] : null;
+      while (p.icon.firstChild) p.icon.removeChild(p.icon.firstChild);
       let lines;
-      if (o.highlight >= 0) lines = ITEMS[o.highlight].name.split(' ');
-      else if (o.mode === 'click') lines = ['Click one,', 'or here', 'to close'];
-      else if (o.moved) lines = ['Let go', 'to cancel'];
-      else lines = ['Move and', 'let go'];
+      let top;
+      if (item) {
+        p.icon.appendChild(p.glyph(item.icon, -11, -26, 22));
+        lines = item.name.split(' ');
+        if (lines.length > 2) lines = [lines[0], lines.slice(1).join(' ')];
+        top = 8 + (lines.length === 1 ? 4 : 0);
+      } else {
+        if (o.mode === 'click') lines = ['Click one,', 'or here', 'to close'];
+        else if (o.moved) lines = ['Let go', 'to cancel'];
+        else lines = ['Move and', 'let go'];
+        top = 4 - (lines.length - 1) * 6.5;
+      }
 
       const hint = p.hint;
       while (hint.firstChild) hint.removeChild(hint.firstChild);
       lines.forEach((line, n) => {
         const span = document.createElementNS(SVG, 'tspan');
         span.setAttribute('x', '0');
-        span.setAttribute('y', String(4 + n * 13 - (lines.length - 1) * 6.5));
+        span.setAttribute('y', String(top + n * 13));
         span.textContent = line;
         hint.appendChild(span);
       });

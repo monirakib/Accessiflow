@@ -2,12 +2,97 @@
 // Large cursor, focus ring, big targets, click assist, stop animations, sticky hover
 'use strict';
 
+// ── The large pointer ─────────────────────────────────────────────────────
+//
+// Drawn by the operating system, from a picture handed over in CSS. It used
+// to be a green circle on the page, moved to wherever the last mouse event
+// said the pointer was, with the real pointer hidden. That always trailed a
+// frame or more behind the hand, so it felt laggy; and wherever the page
+// heard no mouse move (just after switching tabs, after any setting changed,
+// over an embedded frame) there was no pointer on screen at all. A cursor
+// picture moves with the mouse itself and cannot go missing: where a site
+// refuses the picture, the ordinary pointer is shown instead.
+const POINTER_COLOURS = {
+  green: { fill: '#4fffb0', edge: '#0e0f13' },
+  white: { fill: '#ffffff', edge: '#000000' },
+  black: { fill: '#111111', edge: '#ffffff' },
+  yellow: { fill: '#ffd400', edge: '#000000' }
+};
+
+// Drawn on a 32 by 32 grid, with the point that clicks.
+const POINTER_SHAPES = {
+  arrow: { d: 'M3 2 L3 25.5 L9 20 L13.2 29.5 L17.4 27.6 L13.3 18.5 L21.5 18.5 Z', x: 3, y: 2 },
+  hand: { d: 'M10 4 A2 2 0 0 1 14 4 V12 A2 2 0 0 1 18 12 V13 A2 2 0 0 1 22 13 V14 A2 2 0 0 1 26 14 V23 ' +
+    'C26 27 23 30 19 30 H16 C13 30 11 28.5 9.5 26 L4.5 19 A2 2 0 0 1 7.5 16.5 L10 19 Z', x: 12, y: 2 },
+  text: { d: 'M10 3 H14 Q16 3 16 5 Q16 3 18 3 H22 V6 H18.5 Q17.5 6 17.5 7 V25 Q17.5 26 18.5 26 H22 V29 H18 ' +
+    'Q16 29 16 27 Q16 29 14 29 H10 V26 H13.5 Q14.5 26 14.5 25 V7 Q14.5 6 13.5 6 H10 Z', x: 16, y: 16 }
+};
+
+// Chrome ignores cursor pictures bigger than this.
+const POINTER_MAX = 128;
+
+/**
+ * The three pointers for a style: `cursor` everywhere, `hand` on things that
+ * can be clicked, `text` in boxes that take typing. Each is a CSS cursor
+ * value with its hotspot and an ordinary fallback.
+ */
+function largePointer(style, colourName, size) {
+  const c = POINTER_COLOURS[colourName] || POINTER_COLOURS.green;
+  const scale = Math.max(1, Math.min(4, Number(size) || 2));
+  const url = (svg, px, hx, hy, fallback) =>
+    'url("data:image/svg+xml,' + encodeURIComponent(svg) + '") ' + Math.round(hx) + ' ' + Math.round(hy) + ', ' + fallback;
+  const svgOpen = (px, box) => '<svg xmlns="http://www.w3.org/2000/svg" width="' + px + '" height="' + px +
+    '" viewBox="0 0 ' + box + ' ' + box + '">';
+
+  if (style === 'circle') {
+    // The green circle it always was, now moved by the system.
+    const px = Math.min(POINTER_MAX, Math.round(24 * scale));
+    const blob = opacity => svgOpen(px, 32) +
+      '<circle cx="16" cy="16" r="14" fill="' + c.fill + '" fill-opacity="' + opacity + '" stroke="' + c.edge + '" stroke-width="2"/>' +
+      '<circle cx="16" cy="16" r="1.8" fill="' + c.edge + '"/></svg>';
+    const middle = px / 2;
+    return {
+      cursor: url(blob(0.7), px, middle, middle, 'auto'),
+      // More solid over something clickable, so the difference still shows.
+      hand: url(blob(0.95), px, middle, middle, 'pointer'),
+      text: url(blob(0.45), px, middle, middle, 'text')
+    };
+  }
+
+  if (style === 'ring') {
+    // The ordinary pointer, at its ordinary size, inside a ring that is easy
+    // to find on a busy page.
+    const px = Math.min(POINTER_MAX, Math.max(40, Math.round(28 * scale)));
+    const ringed = (shape, fallback) => {
+      const s = POINTER_SHAPES[shape];
+      const k = 0.62;
+      const tx = 32 - s.x * k;
+      const ty = 32 - s.y * k;
+      const svg = svgOpen(px, 64) +
+        '<circle cx="32" cy="32" r="29" fill="' + c.fill + '" fill-opacity="0.18" stroke="' + c.fill + '" stroke-width="3.5"/>' +
+        '<circle cx="32" cy="32" r="30.8" fill="none" stroke="' + c.edge + '" stroke-opacity="0.6" stroke-width="1"/>' +
+        '<path transform="translate(' + tx + ' ' + ty + ') scale(' + k + ')" d="' + s.d + '" fill="#ffffff" ' +
+        'stroke="#000000" stroke-width="2.2" stroke-linejoin="round"/></svg>';
+      return url(svg, px, px / 2, px / 2, fallback);
+    };
+    return { cursor: ringed('arrow', 'auto'), hand: ringed('hand', 'pointer'), text: ringed('text', 'text') };
+  }
+
+  // A bigger version of the pointer everyone already knows.
+  const px = Math.min(POINTER_MAX, Math.round(32 * scale));
+  const k = px / 32;
+  const drawn = (shape, fallback) => {
+    const s = POINTER_SHAPES[shape];
+    const svg = svgOpen(px, 32) + '<path d="' + s.d + '" fill="' + c.fill + '" stroke="' + c.edge +
+      '" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+    return url(svg, px, s.x * k, s.y * k, fallback);
+  };
+  return { cursor: drawn('arrow', 'auto'), hand: drawn('hand', 'pointer'), text: drawn('text', 'text') };
+}
+
 class MotorModule {
   constructor() {
     this._styleEl = null;
-    this._cursorEl = null;
-    this._cursorMoveHandler = null;
-    this._cursorClickHandler = null;
     this._stickyHoverHandlers = { over: null, out: null };
     this._pausedVideos = [];
     // New features
@@ -75,9 +160,22 @@ class MotorModule {
   buildCSS(s) {
     let css = '';
     try {
-      // 1. Large cursor (hide real cursor)
+      // 1. Large pointer, drawn by the system. The three pictures are also
+      // custom properties, which reach inside shadow roots where these rules
+      // cannot: AccessiFlow's own keyboard and ring use them.
       if (s.largeCursor) {
-        css += 'html, html * { cursor: none !important; }\n';
+        const p = largePointer(s.cursorStyle, s.cursorColor, s.cursorSize || 2);
+        css += 'html { --af-cursor: ' + p.cursor + '; --af-cursor-hand: ' + p.hand + '; --af-cursor-text: ' + p.text + '; }\n';
+        css += 'html, html * { cursor: var(--af-cursor) !important; }\n';
+        css += 'html :is(a[href], button, summary, label, select, [role="button"], [role="link"], [role="tab"], ' +
+          '[role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [onclick], ' +
+          'input[type="checkbox"], input[type="radio"], input[type="submit"], input[type="button"], input[type="reset"], ' +
+          'input[type="file"], input[type="range"], input[type="color"]), ' +
+          'html :is(a[href], button, [role="button"], [role="link"]) * { cursor: var(--af-cursor-hand) !important; }\n';
+        css += 'html :is(textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], ' +
+          'input[type="url"], input[type="tel"], input[type="password"], input[type="number"], ' +
+          '[contenteditable=""], [contenteditable="true"]), ' +
+          'html :is([contenteditable=""], [contenteditable="true"]) * { cursor: var(--af-cursor-text) !important; }\n';
       }
       // 2. Enhanced focus ring. Stands aside for the halo, which does the same
       // job without being clipped by the page's own overflow and stacking.
@@ -134,33 +232,12 @@ class MotorModule {
   }
 
   // ── 1. Large cursor ───────────────────────────────────────
-  applyLargeCursor(active, size) {
+  // All of it is CSS now (see largePointer and buildCSS). This only clears
+  // away the circle an older version drew on the page, should one be left.
+  applyLargeCursor() {
     try {
-      if (active) {
-        if (this._cursorEl) return;
-        const sz = 16 * (size || 2);
-        const cursor = document.createElement('div');
-        cursor.id = 'accessiflow-custom-cursor';
-        cursor.setAttribute('aria-hidden', 'true');
-        cursor.style.cssText = 'position:fixed;width:' + sz + 'px;height:' + sz + 'px;border-radius:50%;background:rgba(79,255,176,0.7);border:2px solid #000;pointer-events:none;z-index:2147483647;top:-100px;left:-100px;transition:transform 0.08s ease;';
-        document.body.appendChild(cursor);
-        this._cursorEl = cursor;
-
-        this._cursorMoveHandler = (e) => {
-          cursor.style.left = (e.clientX - sz / 2) + 'px';
-          cursor.style.top = (e.clientY - sz / 2) + 'px';
-        };
-        this._cursorClickHandler = () => {
-          cursor.style.transform = 'scale(1.4)';
-          setTimeout(() => { cursor.style.transform = 'scale(1)'; }, 200);
-        };
-        document.addEventListener('mousemove', this._cursorMoveHandler);
-        document.addEventListener('click', this._cursorClickHandler);
-      } else {
-        if (this._cursorEl) { this._cursorEl.remove(); this._cursorEl = null; }
-        if (this._cursorMoveHandler) { document.removeEventListener('mousemove', this._cursorMoveHandler); this._cursorMoveHandler = null; }
-        if (this._cursorClickHandler) { document.removeEventListener('click', this._cursorClickHandler); this._cursorClickHandler = null; }
-      }
+      const old = document.getElementById('accessiflow-custom-cursor');
+      if (old) old.remove();
     } catch (e) { this._warn('applyLargeCursor: ' + e.message); }
   }
 
@@ -572,28 +649,54 @@ class MotorModule {
         window.addEventListener('scroll', this._snapInvalidate, { passive: true, capture: true });
         window.addEventListener('resize', this._snapInvalidate, { passive: true });
 
-        this._snapMoveHandler = (e) => {
+        // At most once a frame, for the latest position only. Working out the
+        // nearest target on every mouse event, and again after every scroll
+        // event, is what made the pointer feel heavy on long pages.
+        this._snapPoint = null;
+        this._snapFrame = null;
+        const update = () => {
+          this._snapFrame = null;
+          const p = this._snapPoint;
+          if (!p || !this._snapHalo) return;
+          // Rebuilt no more than ten times a second while the page scrolls.
+          if (!this._snapCandidates && Date.now() - (this._snapBuiltAt || 0) < 100) {
+            this._snapFrame = requestAnimationFrame(update);
+            return;
+          }
           try {
-            const target = this._nearestTarget(e.clientX, e.clientY);
+            const target = this._nearestTarget(p.x, p.y);
             this._snapTarget = target;
             if (target) this._snapHalo.follow(target);
             else this._snapHalo.hide();
           } catch (err) { /* skip */ }
+        };
+        this._snapMoveHandler = (e) => {
+          this._snapPoint = { x: e.clientX, y: e.clientY };
+          if (!this._snapFrame) this._snapFrame = requestAnimationFrame(update);
         };
 
         // Capture phase, so the decision is made before the page sees the
         // event and can act on the wrong element.
         this._snapClickHandler = (e) => {
           try {
-            if (!this._snapTarget) return;
-            if (e.target && this._snapTarget.contains(e.target)) return;   // already on target
-            if (G.isActionable(e.target)) return;                          // a different real target: leave it
             if (e.target && e.target.closest && e.target.closest('[id^="accessiflow-"]')) return;
+            if (G.isActionable(e.target)) return;                          // a real target: leave it
+            // Worked out afresh where the click actually is, never from what
+            // the halo last showed: a click sent somewhere the user did not
+            // press is frightening, and the halo can be a frame behind.
+            // A click made by script (Click by hovering, say) has no position of
+            // its own; the pointer's last one stands in for it.
+            const at = (e.clientX || e.clientY) ? { x: e.clientX, y: e.clientY } : this._snapPoint;
+            if (!at) return;
+            this._snapCandidates = null;
+            const destination = this._nearestTarget(at.x, at.y);
+            this._snapTarget = destination;
+            if (!destination) return;
+            if (e.target && destination.contains(e.target)) return;        // already on target
 
             e.preventDefault();
             e.stopPropagation();
 
-            const destination = this._snapTarget;
             if (typeof destination.focus === 'function') {
               try { destination.focus(); } catch (err) { /* skip */ }
             }
@@ -615,9 +718,11 @@ class MotorModule {
           window.removeEventListener('resize', this._snapInvalidate);
           this._snapInvalidate = null;
         }
+        if (this._snapFrame) { cancelAnimationFrame(this._snapFrame); this._snapFrame = null; }
         if (this._snapHalo) { this._snapHalo.destroy(); this._snapHalo = null; }
         this._snapTarget = null;
         this._snapCandidates = null;
+        this._snapPoint = null;
       }
     } catch (e) { this._warn('applyClickSnapping: ' + e.message); }
   }
@@ -641,6 +746,7 @@ class MotorModule {
     } catch (e) { /* skip */ }
 
     this._snapCandidates = out;
+    this._snapBuiltAt = Date.now();
     return out;
   }
 

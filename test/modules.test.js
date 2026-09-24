@@ -101,9 +101,13 @@ check(!byId('captcha-image').hasAttribute('alt'),
 
   speech.applySpeechToText(true, { dictationLanguage: 'en-US' });
   check(Boolean(doc.getElementById('accessiflow-dictation')),
-    'a dictation bar appears, so what is being heard is not typed into the form');
+    'a dictation bar is made, so what is being heard is not typed into the form');
+  check(doc.getElementById('accessiflow-dictation').style.display === 'none',
+    'but it stays out of sight while you are not in a box, rather than sitting over every page');
 
   doc.getElementById('name').focus();
+  check(doc.getElementById('accessiflow-dictation').style.display === 'flex',
+    'and shows once you are in a box it can fill');
   speech.startDictation();
   check(started.length === 1 && started[0] === 'en-US',
     'it listens in the language chosen: ' + started.join(', '));

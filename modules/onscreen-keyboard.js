@@ -87,7 +87,7 @@
     '.grip .into { color: #c9ced8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
     'button { font-family: inherit; }',
     '.tool { font: 600 13px/1 system-ui, sans-serif; min-height: 36px; min-width: 36px; padding: 0 10px; color: #f4f5f7; ',
-    '  background: #2a2e37; border: 1px solid #555c69; border-radius: 8px; cursor: pointer; white-space: nowrap; }',
+    '  background: #2a2e37; border: 1px solid #555c69; border-radius: 8px; cursor: var(--af-cursor-hand, pointer); white-space: nowrap; }',
     '.tool:hover { border-color: #4fffb0; }',
     '.tool[aria-pressed="true"] { background: #4fffb0; color: #111; border-color: #111; }',
     'button:focus-visible, input:focus-visible { outline: 3px solid #ffd400; outline-offset: 2px; }',
@@ -98,7 +98,14 @@
     '.message.said { color: #111; background: #ffd400; font-weight: 600; padding: 6px 10px; border-radius: 8px; }',
     '.status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }',
     '.combo { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }',
-    '.message[hidden], .combo[hidden], .panel[hidden] { display: none; }',
+    '.message[hidden], .combo[hidden], .panel[hidden], .suggest[hidden] { display: none; }',
+    // A fixed height, so words coming and going never move the keys.
+    '.suggest { box-sizing: border-box; height: 46px; display: flex; gap: 6px; align-items: stretch; }',
+    '.sugg { flex: 1 1 0; min-width: 0; font: 600 16px/1 system-ui, "Segoe UI", sans-serif; color: #111; ',
+    '  background: #4fffb0; border: 2px solid #111; border-radius: 8px; cursor: var(--af-cursor-hand, pointer); ',
+    '  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; }',
+    '.sugg:hover { background: #ffd400; }',
+    '.suggest .empty { flex: 1; align-self: center; color: #a9b0bd; padding: 0 4px; }',
     '.chips { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }',
     'kbd { font: 700 15px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; padding: 2px 8px; border-radius: 6px; ',
     '  background: #ffd400; color: #111; }',
@@ -107,8 +114,8 @@
     '.means { flex: 1; min-width: 150px; }',
     '.means.cannot { color: #ffc2b8; }',
     '.doit { font: 700 15px/1 system-ui, sans-serif; min-height: 40px; padding: 0 18px; color: #111; background: #4fffb0; ',
-    '  border: 2px solid #111; border-radius: 8px; cursor: pointer; }',
-    '.doit:disabled { opacity: .45; cursor: default; }',
+    '  border: 2px solid #111; border-radius: 8px; cursor: var(--af-cursor-hand, pointer); }',
+    '.doit:disabled { opacity: .45; cursor: var(--af-cursor, default); }',
     '.panel { display: grid; gap: 8px; padding: 8px; border-radius: 10px; background: #20232a; }',
     '.ask { display: grid; gap: 4px; }',
     '.ask label { font-weight: 700; }',
@@ -122,7 +129,7 @@
     '  letter-spacing: .06em; color: #a9b0bd; }',
     '.act { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; min-height: 48px; ',
     '  padding: 8px 10px; font: 600 14px/1.2 system-ui, sans-serif; color: #f4f5f7; background: #2a2e37; ',
-    '  border: 1px solid #555c69; border-radius: 8px; cursor: pointer; }',
+    '  border: 1px solid #555c69; border-radius: 8px; cursor: var(--af-cursor-hand, pointer); }',
     '.act:hover { border-color: #4fffb0; }',
     '.act.first { border: 2px solid #4fffb0; }',
     '.act.armed { background: #ffd400; color: #111; border-color: #111; }',
@@ -134,7 +141,7 @@
     '.key { flex: var(--w) 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; ',
     '  justify-content: center; gap: 1px; padding: 0 2px; overflow: hidden; ',
     '  font: 600 var(--key-font, 18px)/1 system-ui, "Segoe UI", sans-serif; color: #f4f5f7; background: #2a2e37; ',
-    '  border: 1px solid #555c69; border-bottom-width: 4px; border-radius: 8px; cursor: pointer; }',
+    '  border: 1px solid #555c69; border-bottom-width: 4px; border-radius: 8px; cursor: var(--af-cursor-hand, pointer); }',
     '.key.named { font-size: calc(var(--key-font, 18px) * .7); }',
     '.key .sub { font-size: calc(var(--key-font, 18px) * .55); font-weight: 600; color: #a9b0bd; }',
     '.key:hover { background: #363b46; border-color: #4fffb0; }',
@@ -171,8 +178,12 @@
       this._saved = null;          // where the user was on the page before using the search box
       this._armed = null;          // an action waiting for its second press
       this._repeat = null;
+      this._suggestOn = true;
+      this._predictor = null;      // made the first time a word is started
+      this._suggestFrame = null;
 
       this._onFocusIn = this._onFocusIn.bind(this);
+      this._onTyping = this._onTyping.bind(this);
       this._onFocusOut = this._onFocusOut.bind(this);
       this._onResize = this._onResize.bind(this);
       this._onCarryMove = this._onCarryMove.bind(this);
@@ -182,8 +193,19 @@
 
     get shown() { return this._shown; }
 
+    /**
+     * @param {object} opts
+     * @param {boolean} opts.enabled
+     * @param {boolean} [opts.suggestions] whole words offered above the keys; on unless false
+     */
     apply(opts) {
-      if (opts && opts.enabled) this.show();
+      const o = opts || {};
+      this._suggestOn = o.suggestions !== false;
+      if (this._suggestRow) {
+        this._suggestRow.hidden = !this._suggestOn;
+        this._updateSuggestions();
+      }
+      if (o.enabled) this.show();
       else this.hide();
     }
 
@@ -194,9 +216,13 @@
       this._host.style.display = '';
       document.addEventListener('focusin', this._onFocusIn, true);
       document.addEventListener('focusout', this._onFocusOut, true);
+      // Typing on a real keyboard, and moving the caret, change the word too.
+      document.addEventListener('input', this._onTyping, true);
+      document.addEventListener('selectionchange', this._onTyping);
       window.addEventListener('resize', this._onResize);
       this._loadGeo();
       this._updateTarget();
+      this._updateSuggestions();
     }
 
     hide() {
@@ -208,7 +234,15 @@
       if (this._host) this._host.style.display = 'none';
       document.removeEventListener('focusin', this._onFocusIn, true);
       document.removeEventListener('focusout', this._onFocusOut, true);
+      document.removeEventListener('input', this._onTyping, true);
+      document.removeEventListener('selectionchange', this._onTyping);
       window.removeEventListener('resize', this._onResize);
+    }
+
+    /** Shows the keyboard with its Shortcuts list open, for the ring's Shortcuts choice. */
+    openShortcuts() {
+      this.show();
+      this._togglePanel(true);
     }
 
     destroy() {
@@ -372,7 +406,15 @@
       resize.setAttribute('aria-hidden', 'true');
       resize.addEventListener('pointerdown', e => this._startCarry('resize', e));
 
-      kb.append(bar, line, panel, area, resize);
+      // ── Whole words, offered as the user types ──
+      const suggest = document.createElement('div');
+      suggest.className = 'suggest';
+      suggest.setAttribute('role', 'group');
+      suggest.setAttribute('aria-label', 'Suggested words');
+      suggest.hidden = !this._suggestOn;
+      this._suggestRow = suggest;
+
+      kb.append(bar, line, panel, suggest, area, resize);
       root.appendChild(kb);
 
       // Pressing anything but the search box leaves focus where it was: in
@@ -414,6 +456,109 @@
     _press(def) {
       this._pressKey(def);
       this._updateTarget();
+      this._updateSuggestions();
+    }
+
+    // ── Suggested words ─────────────────────────────────────────────────────
+
+    /** The page's box that suggestions are for: never a password, never the search box. */
+    _suggestField() {
+      const A = this._A();
+      const el = A.deepActive();
+      if (!A.isTextField(el) || A.isOurs(el)) return null;
+      if ((el.getAttribute('type') || '').toLowerCase() === 'password') return null;
+      return el;
+    }
+
+    _model() {
+      if (!this._predictor) {
+        const P = window.AccessiFlowWordPredict;
+        if (!P) return null;
+        this._predictor = P.create({
+          text: () => (document.body ? (document.body.innerText || document.body.textContent || '') : '')
+        });
+      }
+      return this._predictor;
+    }
+
+    _onTyping(e) {
+      if (e && e.type === 'input') {
+        const el = e.composedPath ? e.composedPath()[0] : e.target;
+        if (this._A().isOurs(el)) return;
+      }
+      if (this._suggestFrame) return;
+      const later = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : fn => setTimeout(fn, 16);
+      this._suggestFrame = later(() => {
+        this._suggestFrame = null;
+        this._updateSuggestions();
+      });
+    }
+
+    _updateSuggestions() {
+      const row = this._suggestRow;
+      if (!row || row.hidden) return;
+      const P = window.AccessiFlowWordPredict;
+      const field = this._suggestField();
+      const at = field && P ? P.wordBefore(field) : null;
+      const model = at ? this._model() : null;
+      const words = model ? model.suggest(at.word, this._geo && this._geo.w >= 640 ? 4 : 3) : [];
+
+      const key = words.join('\u0000') + '|' + (field ? 1 : 0);
+      if (key === this._shownWords) return;
+      this._shownWords = key;
+      while (row.firstChild) row.removeChild(row.firstChild);
+      if (!words.length) {
+        const empty = document.createElement('span');
+        empty.className = 'empty';
+        empty.textContent = field ? 'Words to finish what you are typing show here.' : '';
+        row.appendChild(empty);
+        return;
+      }
+      words.forEach(word => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.tabIndex = -1;
+        button.className = 'sugg';
+        button.textContent = word;
+        button.setAttribute('aria-label', 'Type ' + word);
+        button.addEventListener('click', () => this._accept(word));
+        row.appendChild(button);
+      });
+    }
+
+    /** Swaps the part-typed word for the whole one, and a space, in one step Undo can take back. */
+    _accept(word) {
+      const A = this._A();
+      const P = window.AccessiFlowWordPredict;
+      const field = this._suggestField();
+      const at = field && P ? P.wordBefore(field) : null;
+      if (!at) return;
+      try {
+        if (at.node) {
+          const doc = field.ownerDocument || document;
+          const range = doc.createRange();
+          range.setStart(at.node, at.start);
+          range.setEnd(at.node, at.end);
+          const sel = doc.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          field.setSelectionRange(at.start, at.end);
+        }
+      } catch (e) { return; }
+      A.insertText(field, word + ' ');
+      const model = this._model();
+      if (model) model.learn(word);
+      this._updateSuggestions();
+    }
+
+    /** Counts the word just finished, as a space or a full stop ends it. */
+    _learnWord(field) {
+      const P = window.AccessiFlowWordPredict;
+      if (!P || !field || field !== this._suggestField()) return;
+      const at = P.wordBefore(field);
+      const model = at ? this._model() : null;
+      if (model) model.learn(at.word);
     }
 
     _pressKey(def) {
@@ -462,6 +607,7 @@
         let ch = shift ? def.shifted : def.char;
         if (def.letter && this._caps) ch = shift ? def.char : def.shifted;
         if (field) {
+          if (/[.,!?;:)\]}"']/.test(ch)) this._learnWord(field);
           A.insertText(field, ch);
           this._updateTarget();
           return;
@@ -506,7 +652,12 @@
 
     _space(field, shift) {
       const A = this._A();
-      if (field) { A.insertText(field, ' '); if (field === this._search) this._renderResults(); return; }
+      if (field) {
+        this._learnWord(field);
+        A.insertText(field, ' ');
+        if (field === this._search) this._renderResults();
+        return;
+      }
       const target = A.deepActive();
       if (A.sendKeys(target, { shift: shift }, 'Space')) return;
       if (this._pressable(target)) { target.click(); return; }
@@ -516,6 +667,7 @@
     _enter(field, shift) {
       const A = this._A();
       if (field === this._search) { this._runFirst(); return; }
+      this._learnWord(field);
       const target = field || A.deepActive();
       // The page hears Enter first: a chat box sends the message on it.
       if (A.sendKeys(target, { shift: shift }, 'Enter')) return;
@@ -989,11 +1141,15 @@
       if (A.isOurs(el)) return;
       this._saved = null;
       this._updateTarget();
+      this._updateSuggestions();
       if (A.isTextField(el)) this._reveal(el);
     }
 
     _onFocusOut() {
-      setTimeout(() => this._updateTarget(), 0);
+      setTimeout(() => {
+        this._updateTarget();
+        this._updateSuggestions();
+      }, 0);
     }
 
     /** Scrolls the page so the box being typed in is not hidden under the keyboard. */

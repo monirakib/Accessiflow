@@ -261,6 +261,40 @@ check(doc.getElementById('accessiflow-snap-halo') === null, 'the snap halo is re
     'a fast deliberate move keeps up, trailing by ' + Math.round(Math.abs(last.x - x)) + 'px rather than lagging');
 }
 
+// ── The large pointer ───────────────────────────────────────────────────────
+// Drawn by the system from a picture, never by a circle on the page moved
+// after the mouse: that trailed behind the hand and, wherever the page heard
+// no mouse move, left no pointer on screen at all.
+{
+  const css = motor.buildCSS({ largeCursor: true, cursorSize: 2.5 });
+  check(!/cursor:\s*none/.test(css), 'the real pointer is never hidden');
+  check(/--af-cursor: url\("data:image\/svg\+xml,/.test(css) && /, auto;/.test(css),
+    'it is a cursor picture, with the ordinary pointer to fall back on where a site refuses it');
+  check(/--af-cursor-hand: url\(/.test(css) && /, pointer;/.test(css) && /--af-cursor-text: url\(/.test(css),
+    'with a hand for things that can be clicked and a text cursor for boxes, so those cues are not lost');
+  const px = style => Number((/width%3D%22(\d+)%22/.exec(motor.buildCSS({ largeCursor: true, cursorSize: 2.5, cursorStyle: style })) || [])[1]);
+  check(px('arrow') === 80, 'a big arrow at 2.5 times: ' + px('arrow') + 'px');
+  check(px('circle') === 60 && /circle/.test(decodeURIComponent(motor.buildCSS({ largeCursor: true, cursorStyle: 'circle' }))),
+    'the green circle is still there for those who want it: ' + px('circle') + 'px');
+  check(px('ring') > 32, 'and the ordinary pointer with a ring round it');
+  const biggest = Number((/width%3D%22(\d+)%22/.exec(motor.buildCSS({ largeCursor: true, cursorSize: 4 })) || [])[1]);
+  check(biggest === 128, 'never bigger than the 128 pixels Chrome allows, or it would be ignored: ' + biggest);
+  const hotspot = /\) (\d+) (\d+), auto;/.exec(css);
+  check(hotspot && Number(hotspot[1]) < 80 && Number(hotspot[1]) >= 0,
+    'the point that clicks is inside the picture, at the arrow’s tip: ' + (hotspot ? hotspot[1] + ',' + hotspot[2] : 'none'));
+  check(/%23ffd400/i.test(motor.buildCSS({ largeCursor: true, cursorColor: 'yellow' })) &&
+    /%234fffb0/i.test(css), 'in the colour chosen, green unless another is picked');
+  check(motor.buildCSS({ largeCursor: false }).indexOf('--af-cursor') === -1, 'and switched off, the page’s own pointer is left alone');
+
+  // An older version's circle, left on a page, is cleared away.
+  const old = doc.createElement('div');
+  old.id = 'accessiflow-custom-cursor';
+  doc.body.appendChild(old);
+  motor.apply({ largeCursor: true });
+  check(!doc.getElementById('accessiflow-custom-cursor'), 'no circle is drawn on the page any more, and an old one is removed');
+  motor.destroy();
+}
+
 // ── Nothing left behind ─────────────────────────────────────────────────────
 motor.destroy();
 check(doc.getElementById('accessiflow-focus-halo') === null &&

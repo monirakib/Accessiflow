@@ -27,6 +27,8 @@ const PAGE = `<!DOCTYPE html><html lang="en"><body>
     <select id="country"><option>UK</option><option>BD</option></select>
     <input id="volume" type="range" min="0" max="10" value="5">
     <div id="panel" style="overflow:auto"><p>Inner</p></div>
+    <p id="words">Dhaka is the capital. Dhaka traffic is famous. The delivery goes to Dhanmondi.
+      বাংলাদেশ একটি দেশ। বাংলাদেশ সুন্দর।</p>
   </main>
 </body></html>`;
 
@@ -64,7 +66,8 @@ window.chrome = {
 };
 
 for (const f of ['modules/color.js', 'modules/overlay.js', 'modules/naming.js', 'modules/page-actions.js',
-  'modules/motor.js', 'modules/hand-actions.js', 'modules/pointer-dial.js', 'modules/onscreen-keyboard.js']) {
+  'modules/motor.js', 'modules/hand-actions.js', 'modules/pointer-dial.js', 'modules/word-predict.js',
+  'modules/onscreen-keyboard.js', 'modules/profiles.js', 'popup-schema.js']) {
   window.eval(fs.readFileSync(path.join(ROOT, f), 'utf8'));
 }
 
@@ -332,11 +335,11 @@ function key(type, keyName, target) {
     A.scrollerAt = () => doc.scrollingElement || doc.documentElement;
     pointer('pointerdown', para, 400, 300);
     await wait(260);
-    pointer('pointermove', doc.documentElement, 400, 250);
-    pointer('pointerup', doc.documentElement, 400, 250);
+    pointer('pointermove', doc.documentElement, 400, 240);
+    pointer('pointerup', doc.documentElement, 400, 240);
     check(windowScrolls.length === 1 && windowScrolls[0] < -400,
       'a quick flick to Scroll up moves the page up by a screen: ' + windowScrolls.join());
-    mouse('click', para, 400, 250);
+    mouse('click', para, 400, 240);
 
     A.scrollerAt = realScrollerAt;
     A.scrollBy = realScrollBy;
@@ -356,6 +359,54 @@ function key(type, keyName, target) {
     key('keydown', 'Escape');
     check(String(doc.getSelection()) === 'Some', 'whatever was selected before the ring opened is selected again after');
     pointer('pointerup', doc.documentElement, 400, 300);
+  }
+  await wait(850);
+
+  // ── Choosing what is in the ring ──
+  {
+    const Dial = window.AccessiFlowPointerDial;
+    const schema = window.ACCESSIFLOW_SCHEMA;
+    const controls = schema.sections.reduce((all, s) => all.concat(s.controls), []);
+    const places = [1, 2, 3, 4, 5, 6, 7, 8].map(n => controls.find(c => c.id === 'holdDialSlot' + n));
+    check(places.every(Boolean), 'the popup has a choice for each of the eight places');
+    check(places.map(c => c.default).join() === Dial.DEFAULT_SLOTS.join(),
+      'and each starts as the ring does today: ' + places.map(c => c.default).join());
+    const offered = places[0].options.map(o => o.value);
+    const unknown = offered.filter(v => v !== 'none' && !Dial.ACTIONS[v]);
+    check(unknown.length === 0 && offered.length === Object.keys(Dial.ACTIONS).length + 1,
+      'every choice the popup offers is one the ring can draw and do' + (unknown.length ? ': ' + unknown.join() : ''));
+    const catalogue = new Set(A.ACTIONS.map(a => a.id).concat(['scrollUp', 'scrollDown', 'keyboard', 'shortcuts', 'readPage', 'stopReading']));
+    const orphans = Object.keys(Dial.ACTIONS).filter(id => !catalogue.has(id));
+    check(orphans.length === 0, 'and every one of them has something to run it' + (orphans.length ? ': ' + orphans.join() : ''));
+
+    // Copy at the top, nothing on the right, and the rest as before.
+    dial.apply({ enabled: true, delay: 200, slots: ['copy', undefined, 'none'] });
+    check(dial.slots.join() === 'copy,nextTab,,reload,scrollDown,keyboard,back,prevTab',
+      'the chosen places change, and the ones not chosen keep their defaults: ' + dial.slots.join());
+    ran.length = 0;
+    pointer('pointerdown', para, 400, 300);
+    await wait(260);
+    const labels = Array.from(ring().shadowRoot.querySelectorAll('[role="menuitem"]')).map(g => g.getAttribute('aria-label'));
+    check(labels.length === 7 && labels[0] === 'Copy', 'the ring is drawn with them, the empty place left out: ' + labels.join(', '));
+    check(!!ring().shadowRoot.querySelector('.wedge.empty'), 'the empty place is still drawn, dimmed, so the ring keeps its shape');
+    pointer('pointermove', doc.documentElement, 400, 250);
+    pointer('pointermove', doc.documentElement, 400, 220);
+    check(/Copy/.test(ring().shadowRoot.querySelector('.middle text').textContent),
+      'the middle names what will happen: ' + ring().shadowRoot.querySelector('.middle text').textContent);
+    pointer('pointerup', doc.documentElement, 400, 220);
+    mouse('click', para, 400, 220);
+    check(ran.join() === 'copy', 'and letting go there runs it: ' + ran.join());
+
+    pointer('pointerdown', para, 400, 300);
+    await wait(260);
+    pointer('pointermove', doc.documentElement, 450, 300);
+    pointer('pointermove', doc.documentElement, 500, 300);
+    pointer('pointerup', doc.documentElement, 500, 300);
+    mouse('click', para, 500, 300);
+    check(ran.join() === 'copy' && !dial.isOpen, 'letting go on the empty place does nothing and closes the ring');
+    await wait(850);
+    dial.apply({ enabled: true, delay: 200 });
+    check(dial.slots.join() === Dial.DEFAULT_SLOTS.join(), 'with no choices given, it goes back to the usual eight');
   }
 
   dial.apply({ enabled: false });
@@ -583,6 +634,56 @@ function key(type, keyName, target) {
     check(panel.hidden, 'Shortcuts again closes the list');
   }
 
+  // ── Suggested words ──
+  {
+    const W = window.AccessiFlowWordPredict;
+    const model = W.create({ text: () => doc.body.textContent });
+    check(model.suggest('Dh')[0] === 'Dhaka', 'a word on the page is offered as soon as it is started: ' + model.suggest('Dh').join(', '));
+    check(model.suggest('dh')[0] === 'Dhaka', 'a name keeps its capital even when started in lower case');
+    check(model.suggest('DH')[0] === 'DHAKA', 'and capitals typed are kept: ' + model.suggest('DH')[0]);
+    check(model.suggest('বাং')[0] === 'বাংলাদেশ', 'Bangla words come from the page just the same: ' + model.suggest('বাং').join(', '));
+    check(model.suggest('the').indexOf('the') === -1, 'a word already finished is not offered back');
+    check(model.suggest('becau')[0] === 'because', 'common English words fill in where the page has none');
+    check(model.suggest('Dha').length === 2 && model.suggest('Dha')[0] === 'Dhaka',
+      'the word seen most often comes first: ' + model.suggest('Dha').join(', '));
+    model.learn('Dhanmondi');
+    model.learn('Dhanmondi');
+    check(model.suggest('Dha')[0] === 'Dhanmondi', 'a word the user keeps typing moves to the front');
+    check(model.suggest('').length === 0 && model.suggest('12').length === 0, 'nothing is offered before a word is started');
+
+    const row = root.querySelector('.suggest');
+    const words = () => Array.from(row.querySelectorAll('.sugg')).map(b => b.textContent);
+    check(!row.hidden, 'the keyboard has a row for suggested words');
+    name.value = '';
+    name.focus();
+    press('Shift', 'D', 'h');
+    check(words()[0] === 'Dhaka', 'typing on the keyboard offers words from the page: ' + words().join(', '));
+    tap(row.querySelector('.sugg'));
+    check(name.value === 'Dhaka ', 'choosing one finishes the word and adds a space: "' + name.value + '"');
+    check(doc.activeElement === name, 'without taking focus from the box');
+
+    // Typing on a real keyboard updates them too.
+    name.value = 'bangla বাং';
+    name.setSelectionRange(name.value.length, name.value.length);
+    name.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await wait(40);
+    check(words()[0] === 'বাংলাদেশ', 'so does typing on a real keyboard: ' + words().join(', '));
+
+    const secret = doc.createElement('input');
+    secret.type = 'password';
+    secret.id = 'secret';
+    doc.querySelector('main').appendChild(secret);
+    secret.focus();
+    press('d', 'h');
+    check(words().length === 0, 'a password box is never offered words, and never learned from');
+    secret.remove();
+
+    board.apply({ enabled: true, suggestions: false });
+    check(row.hidden, 'the row goes when Suggest words is switched off');
+    board.apply({ enabled: true, suggestions: true });
+    name.focus();
+  }
+
   // ── Size, place and Hide ──
   {
     const before = storage.accessiflow_keyboard ? storage.accessiflow_keyboard.w : board._geo.w;
@@ -713,6 +814,9 @@ async function backgroundTests() {
   check(reply.ok && /^data:image\/png/.test(reply.image), 'a screenshot comes back to the page as a picture');
   await ask('history', tabs[0]);
   check(calls.created.pop().url === 'chrome://history/', 'History opens Chrome’s history page');
+  await ask('newTab', tabs[0]);
+  check(calls.created.pop().url === 'https://www.google.com/',
+    'New tab opens Google, where the keyboard and ring work, not Chrome’s own page where no extension can');
   await ask('closeTab', tabs[0]);
   check(calls.removed.pop() === tabs[0].id, 'Close this tab closes the tab that asked, and only that one');
 

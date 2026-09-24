@@ -450,7 +450,11 @@ async function handTab(op, tab) {
       return { ok: true };
     }
     case 'newTab':
-      await chrome.tabs.create({ windowId: tab.windowId });
+      // Chrome's own new tab page is closed to every extension, so the ring
+      // and the on-screen keyboard would vanish there, and with them the only
+      // way this user has to type a search. Google's page looks the same and
+      // AccessiFlow works on it.
+      await chrome.tabs.create({ windowId: tab.windowId, url: 'https://www.google.com/' });
       return { ok: true };
     case 'closeTab':
       await chrome.tabs.remove(tab.id);

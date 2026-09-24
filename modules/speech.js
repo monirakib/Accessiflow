@@ -471,9 +471,12 @@ class SpeechModule {
     bar.setAttribute('aria-label', 'Dictation');
     bar.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);' +
       'z-index:2147483640;background:#16181f;color:#e8eaf0;border:2px solid #4fffb0;' +
-      'border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:10px;' +
+      'border-radius:14px;padding:10px 12px;display:none;align-items:center;gap:10px;' +
       'max-width:min(640px,92vw);box-shadow:0 8px 32px rgba(0,0,0,0.5);' +
       'font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;';
+    // Pressing Start must not take focus out of the box, or the bar would
+    // hide itself on the way to being clicked.
+    bar.addEventListener('mousedown', e => e.preventDefault());
 
     const button = document.createElement('button');
     button.type = 'button';
@@ -500,6 +503,34 @@ class SpeechModule {
   _dictationSay(message, heard) {
     const status = document.getElementById('accessiflow-dictation-status');
     if (status) status.textContent = heard ? '“' + heard + '”' : message;
+    // A message stays up long enough to read, even outside a box.
+    if (message && !heard && this._dictation) {
+      this._dictation.sayUntil = Date.now() + 5000;
+      clearTimeout(this._dictationSayTimer);
+      this._dictationSayTimer = setTimeout(() => this._dictationShow(), 5100);
+    }
+    this._dictationShow();
+  }
+
+  _isDictationField(el) {
+    if (!el || el.nodeType !== 1 || el.disabled || el.readOnly) return false;
+    return el.matches('input[type="text"], input[type="search"], input[type="email"], input[type="url"], ' +
+      'input[type="tel"], input[type="number"], input:not([type]), textarea, [contenteditable="true"]');
+  }
+
+  /**
+   * Whether the bar is on screen. It used to stay up on every page from the
+   * moment dictation was switched on, over whatever the user was looking at.
+   * Now it shows only where it can be used: in a box that takes dictation,
+   * while listening, or for a few seconds to say what happened.
+   * Alt+Shift+V works whether it is showing or not.
+   */
+  _dictationShow() {
+    const bar = document.getElementById('accessiflow-dictation');
+    if (!bar || !this._dictation) return;
+    const inBox = this._isDictationField(document.activeElement);
+    const saying = Date.now() < (this._dictation.sayUntil || 0);
+    bar.style.display = inBox || this._dictation.listening || saying ? 'flex' : 'none';
   }
 
   applySpeechToText(active, settings) {
@@ -521,15 +552,23 @@ class SpeechModule {
       this._dictation = this._dictation || { listening: false, field: null, lastLength: 0 };
       this._dictation.lang = (settings && settings.dictationLanguage) || '';
       this._dictationBar();
+      this._dictationShow();
 
-      // Remember which box to fill while the user is choosing one.
+      // Remember which box to fill while the user is choosing one, and show
+      // the bar only while they are in one.
       if (!this._dictationFocus) {
         this._dictationFocus = e => {
           if (!this._dictation) return;
           const field = e.target;
-          if (this._dictationFields().indexOf(field) > -1) this._dictation.field = field;
+          if (this._isDictationField(field)) this._dictation.field = field;
+          this._dictationShow();
+        };
+        this._dictationBlur = () => {
+          // Focus moving from one box to the next passes through nothing.
+          setTimeout(() => this._dictationShow(), 0);
         };
         document.addEventListener('focusin', this._dictationFocus, true);
+        document.addEventListener('focusout', this._dictationBlur, true);
       }
     } catch (e) { this._warn('applySpeechToText: ' + e.message); }
   }

@@ -66,11 +66,22 @@
   }
 
   function runDialChoice(id) {
-    if (id === 'keyboard') {
-      setKeyboardShown(!currentSettings.onScreenKeyboard);
-      return;
-    }
     const A = window.AccessiFlowHandActions;
+    switch (id) {
+      case 'keyboard':
+        setKeyboardShown(!currentSettings.onScreenKeyboard);
+        return;
+      case 'shortcuts':
+        setKeyboardShown(true);
+        if (screenKeyboard) screenKeyboard.openShortcuts();
+        return;
+      case 'readPage':
+        if (ttsEngine) ttsEngine.readPage();
+        return;
+      case 'stopReading':
+        stopAll();
+        return;
+    }
     if (!A) return;
     A.run(id).then(message => A.toast(message)).catch(err => A.toast(err.message));
   }
@@ -1073,13 +1084,17 @@
             enabled: !!settings.holdDial,
             delay: settings.holdDialDelay,
             button: settings.holdDialButton,
-            speed: settings.holdDialScrollSpeed
+            speed: settings.holdDialScrollSpeed,
+            slots: [1, 2, 3, 4, 5, 6, 7, 8].map(n => settings['holdDialSlot' + n])
           });
         } catch (e) { _warn('Hold-click menu apply error: ' + e.message); }
       }
       if (screenKeyboard) {
         try {
-          screenKeyboard.apply({ enabled: !!settings.onScreenKeyboard });
+          screenKeyboard.apply({
+            enabled: !!settings.onScreenKeyboard,
+            suggestions: settings.keyboardSuggestions !== false
+          });
         } catch (e) { _warn('On-screen keyboard apply error: ' + e.message); }
       }
 
@@ -1575,6 +1590,35 @@
     });
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // ── After AccessiFlow is updated or reloaded ──────────────
+  //
+  // Chrome leaves the old copy running in tabs that were already open, cut off
+  // from the extension, and puts the new one in only when the page reloads.
+  // The old copy's pointer, keyboard and menus stayed behind and half worked,
+  // so one tab behaved differently from the next. Now it notices it has been
+  // cut off the moment the tab is looked at or clicked, clears itself away,
+  // and says why.
+  let retired = false;
+  function extensionAlive() {
+    try { return Boolean(chrome.runtime && chrome.runtime.id); } catch (e) { return false; }
+  }
+  function retireIfOrphaned() {
+    if (retired || extensionAlive()) return;
+    retired = true;
+    extensionEnabled = false;
+    try { observer.disconnect(); } catch (e) { /* ok */ }
+    destroyAll();
+    window.__accessiflowLoaded = false;
+    _log('Cut off by an update; cleared away.');
+    try {
+      const A = window.AccessiFlowHandActions;
+      if (A) A.toast('AccessiFlow was updated. Reload this page to use it here.');
+    } catch (e) { /* ok */ }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) retireIfOrphaned(); });
+  window.addEventListener('focus', retireIfOrphaned);
+  window.addEventListener('pointerdown', retireIfOrphaned, true);
 
   // ── Reading whatever you point at or tab to ───────────────
   //

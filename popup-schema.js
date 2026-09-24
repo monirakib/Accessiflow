@@ -15,6 +15,58 @@
 //     clinical term ("dyslexia", "tremor") still finds the plain-language row.
 'use strict';
 
+// What each place on the hold-click menu can hold. The values are the
+// action ids modules/pointer-dial.js knows; test/hand-assist.test.js checks
+// the two lists agree.
+const RING_CHOICES = [
+  { value: 'scrollUp', label: 'Scroll up' },
+  { value: 'scrollDown', label: 'Scroll down' },
+  { value: 'back', label: 'Back' },
+  { value: 'forward', label: 'Forward' },
+  { value: 'prevTab', label: 'Previous tab' },
+  { value: 'nextTab', label: 'Next tab' },
+  { value: 'reload', label: 'Reload' },
+  { value: 'keyboard', label: 'On-screen keyboard' },
+  { value: 'shortcuts', label: 'Shortcuts list' },
+  { value: 'newTab', label: 'New tab' },
+  { value: 'closeTab', label: 'Close this tab' },
+  { value: 'top', label: 'Top of the page' },
+  { value: 'bottom', label: 'Bottom of the page' },
+  { value: 'copy', label: 'Copy' },
+  { value: 'cut', label: 'Cut' },
+  { value: 'paste', label: 'Paste' },
+  { value: 'selectAll', label: 'Select all' },
+  { value: 'undo', label: 'Undo' },
+  { value: 'redo', label: 'Redo' },
+  { value: 'zoomIn', label: 'Zoom in' },
+  { value: 'zoomOut', label: 'Zoom out' },
+  { value: 'zoomReset', label: 'Normal size' },
+  { value: 'screenshot', label: 'Screenshot' },
+  { value: 'print', label: 'Print' },
+  { value: 'history', label: 'History' },
+  { value: 'downloads', label: 'Downloads' },
+  { value: 'newWindow', label: 'New window' },
+  { value: 'readPage', label: 'Read this page aloud' },
+  { value: 'stopReading', label: 'Stop reading' },
+  { value: 'none', label: 'Nothing (leave it empty)' }
+];
+
+// The eight places, clockwise from the top, with what each holds at first.
+const RING_PLACES = [
+  ['holdDialSlot1', 'top', 'scrollUp'],
+  ['holdDialSlot2', 'top right', 'nextTab'],
+  ['holdDialSlot3', 'right', 'forward'],
+  ['holdDialSlot4', 'bottom right', 'reload'],
+  ['holdDialSlot5', 'bottom', 'scrollDown'],
+  ['holdDialSlot6', 'bottom left', 'keyboard'],
+  ['holdDialSlot7', 'left', 'back'],
+  ['holdDialSlot8', 'top left', 'prevTab']
+].map(([id, place, value]) => ({
+  id: id, type: 'select', label: 'Ring, ' + place, desc: 'What the ' + place + ' of the hold-click menu does.',
+  default: value, wcag: '2.5.6', keywords: 'ring menu slot place choose customise customize ' + place,
+  dependsOn: 'holdDial', options: RING_CHOICES
+}));
+
 const SCHEMA = {
   /**
    * Preset bundles on the home panel, from modules/profiles.js so the page
@@ -131,7 +183,18 @@ const SCHEMA = {
       desc: 'Bigger targets, steadier pointer, keyboard control.',
       controls: [
         { id: 'bigTargets', type: 'switch', label: 'Bigger buttons and links', desc: 'Grow everything clickable to at least 44 pixels.', wcag: '2.5.8', keywords: 'target size tap hit area small' },
-        { id: 'largeCursor', type: 'switch', label: 'Large pointer', desc: 'Replace the mouse pointer with a much bigger one.', wcag: '2.5.8', keywords: 'cursor mouse big find' },
+        { id: 'largeCursor', type: 'switch', label: 'Large pointer', desc: 'Make the mouse pointer much easier to see. It moves with your mouse exactly, and turning this off gives you the normal pointer back.', wcag: '2.5.8', keywords: 'cursor mouse big find lost missing' },
+        { id: 'cursorStyle', type: 'select', label: 'Pointer style', desc: 'What the large pointer looks like.', default: 'arrow', wcag: '2.5.8', keywords: 'cursor shape arrow circle blob ring green normal', dependsOn: 'largeCursor', options: [
+          { value: 'arrow', label: 'Big arrow' },
+          { value: 'circle', label: 'Big circle' },
+          { value: 'ring', label: 'Normal pointer, with a ring round it' }
+        ] },
+        { id: 'cursorColor', type: 'select', label: 'Pointer colour', desc: 'The colour of the large pointer.', default: 'green', wcag: '1.4.11', keywords: 'cursor colour color green white black yellow', dependsOn: 'largeCursor', options: [
+          { value: 'green', label: 'Green' },
+          { value: 'white', label: 'White' },
+          { value: 'black', label: 'Black' },
+          { value: 'yellow', label: 'Yellow' }
+        ] },
         { id: 'cursorSize', type: 'slider', label: 'Pointer size', desc: 'How big the large pointer is.', min: 1.5, max: 4, step: 0.5, default: 2, suffix: '×', wcag: '2.5.8', keywords: 'cursor scale', dependsOn: 'largeCursor' },
         { id: 'holdDial', type: 'switch', label: 'Hold-click menu', desc: 'Hold the mouse button still for a moment to open a ring of actions: scroll, back, forward, switch tabs, reload and the on-screen keyboard. Move to one and let go. A quick click still clicks.', wcag: '2.5.6', keywords: 'radial pie wheel circle ring dial menu hold long press one hand one-handed mouse only scroll back forward tabs switch reload refresh keyboard shortcuts gesture' },
         { id: 'holdDialDelay', type: 'slider', label: 'Hold for', desc: 'How long to hold the button before the menu opens.', min: 400, max: 2000, step: 100, default: 800, suffix: 'ms', wcag: '2.2.1', keywords: 'delay timing hold long press wait', dependsOn: 'holdDial' },
@@ -144,7 +207,9 @@ const SCHEMA = {
           { value: 'medium', label: 'Medium' },
           { value: 'fast', label: 'Fast' }
         ] },
+        ...RING_PLACES,
         { id: 'onScreenKeyboard', type: 'switch', label: 'On-screen keyboard', desc: 'A keyboard on the page that you click one key at a time. Ctrl, Shift, Alt and Windows stay held until the next key, so shortcuts need one hand. Drag it anywhere and make it bigger or smaller.', wcag: '2.5.6', keywords: 'on screen virtual soft keyboard osk type typing mouse sticky keys combination shortcut ctrl shift alt one hand one-handed copy paste screenshot' },
+        { id: 'keyboardSuggestions', type: 'switch', label: 'Suggest words', desc: 'Offer whole words above the keys as you type, taken from the page you are on and what you have typed on it. Nothing is kept or sent anywhere.', wcag: '2.5.6', keywords: 'word prediction predict predictive suggest suggestions complete autocomplete completion faster typing bangla', defaultOn: true, dependsOn: 'onScreenKeyboard' },
         { id: 'focusLock', type: 'switch', label: 'Keep the keyboard inside pop-ups', desc: 'When a pop-up opens, move the keyboard into it and stop Tab wandering off behind it. Alt+Shift+U lets you out.', wcag: '2.4.3', keywords: 'modal dialog popup trap focus keyboard tab escapes behind stuck lightbox overlay cookie', defaultOn: true },
         { id: 'focusHalo', type: 'switch', label: 'Show me where the keyboard is', desc: 'Draw a bright ring around the current item, with a note of which key activates it. Works even where a normal outline gets cut off.', wcag: '2.4.11', keywords: 'keyboard outline ring where am i tab focus halo highlight lost which key shortcut' },
         { id: 'focusHaloPulse', type: 'switch', label: 'Make the ring pulse', desc: 'Fade the ring in and out so it catches the eye. Turns itself off when you have asked for less motion.', wcag: '2.4.11', keywords: 'pulse flash animate blink attention', defaultOn: true, dependsOn: 'focusHalo' },
