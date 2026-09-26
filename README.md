@@ -713,5 +713,3 @@ automated tests only stop the obvious regressions.
   `web_accessible_resources`, and build the `@font-face` `src` with
   `chrome.runtime.getURL()`. Nothing else in the extension loads a remote
   resource; the popup and welcome pages were cleaned of Google Fonts in 2.0.
-#   A c c e s s i f l o w - A c c e s s i b i l i t y - E x t e n s i o n  
- 
